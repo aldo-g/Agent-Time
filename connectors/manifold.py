@@ -1,12 +1,13 @@
 """Manifold Markets API client (read-only subset)."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests
 
-API_ROOT = "https://manifold.markets/api/v0"
+API_ROOT = os.environ.get("MANIFOLD_API_ROOT", "https://api.manifold.markets/v0")
 
 
 class ManifoldAPIError(RuntimeError):
@@ -25,10 +26,14 @@ class ManifoldClient:
         api_root: str = API_ROOT,
         session: Optional[requests.Session] = None,
         timeout: Optional[float] = 10.0,
+        api_key: Optional[str] = None,
     ) -> None:
         self._api_root = api_root.rstrip("/")
         self._session = session or requests.Session()
         self._timeout = timeout
+        self._api_key = api_key or os.environ.get("MANIFOLD_API_KEY")
+        if self._api_key:
+            self._session.headers.update({"Authorization": f"Key {self._api_key}"})
 
     def list_markets(self, **params: Any) -> List[Dict[str, Any]]:
         """GET /v0/markets"""
@@ -63,6 +68,17 @@ class ManifoldClient:
         """GET /v0/group/:slug"""
         return self._get(f"/group/{slug}")
 
+    def get_me(self) -> Dict[str, Any]:
+        """GET /v0/me (requires MANIFOLD_API_KEY)"""
+        return self._get("/me")
+
+    def get_portfolio(self) -> Dict[str, Any]:
+        """GET /v0/me (requires MANIFOLD_API_KEY)."""
+        data = self.get_me()
+        if not isinstance(data, dict):
+            raise ManifoldAPIError("/me returned unexpected payload")
+        return data
+
     # CamelCase wrappers to match earlier plan terminology.
     def listMarkets(self, **params: Any) -> List[Dict[str, Any]]:
         return self.list_markets(**params)
@@ -78,7 +94,35 @@ class ManifoldClient:
 
     def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         url = f"{self._api_root}{path}"
-        response = self._session.get(url, params=params, timeout=self._timeout)
+        query = dict(params or {})
+        self._debug_request(url, query)
+        response = self._session.get(
+            url,
+            params=query or None,
+            timeout=self._timeout,
+        )
         if not response.ok:
             raise ManifoldAPIError(f"GET {url} failed: {response.status_code} {response.text}")
         return response.json()
+
+    def _debug_request(self, url: str, params: Optional[Dict[str, Any]]) -> None:
+        if not os.environ.get("MANIFOLD_DEBUG"):
+            return
+        auth_header = self._session.headers.get("Authorization")
+        masked = self._mask_auth(auth_header)
+        payload = ""
+        if params:
+            safe_params = {
+                key: (self._mask_auth(str(value)) if key.lower() == "apikey" else value)
+                for key, value in params.items()
+            }
+            payload = f" params={safe_params}"
+        print(f"[manifold] GET {url}{payload} auth={masked}")
+
+    @staticmethod
+    def _mask_auth(value: Optional[str]) -> str:
+        if not value:
+            return "<none>"
+        if len(value) <= 10:
+            return value
+        return value[:6] + "…" + value[-4:]
