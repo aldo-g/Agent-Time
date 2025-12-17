@@ -1,4 +1,4 @@
-"""Simple analysis helper that inspects Manifold markets and explains findings."""
+"""Simple analysis helper that inspects Polymarket markets and explains findings."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -145,14 +145,9 @@ class MarketScout:
         return [m for m in ranked[:3] if m["volume24h"] > 0]
 
     def _next_steps(self, markets: Sequence[Dict[str, Any]], highlights: Sequence[MarketHighlight]) -> List[str]:
-        steps = [
-            "Compare current portfolio exposure vs. liquidity on target markets",
-            "Decide whether to pursue momentum or mean-reversion on active markets",
-        ]
+        steps: List[str] = []
         if not highlights:
             steps.insert(0, "Broaden market fetch parameters to find candidates (current set looks quiet)")
-        if markets:
-            steps.append("Fetch group metadata to cluster opportunities before executing trades")
         return steps
 
     @staticmethod
@@ -173,11 +168,19 @@ class MarketScout:
             return None
         try:
             if isinstance(value, (int, float)):
-                # Manifold timestamps are ms since epoch.
-                return datetime.fromtimestamp(float(value) / 1000.0, tz=timezone.utc)
+                # Polymarket feeds can be epoch seconds or ms; normalize to datetime.
+                seconds = float(value)
+                if seconds > 1e12:
+                    seconds /= 1000.0
+                return datetime.fromtimestamp(seconds, tz=timezone.utc)
             if isinstance(value, str):
+                text = value.strip()
+                if not text:
+                    return None
+                if text.endswith("Z"):
+                    text = text[:-1] + "+00:00"
                 # try parse ISO
-                return datetime.fromisoformat(value)
+                return datetime.fromisoformat(text)
         except Exception:
             return None
         return None

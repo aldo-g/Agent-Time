@@ -1,4 +1,4 @@
-"""Entry point for running the prompt-driven Manifold agent."""
+"""Entry point for running the prompt-driven Polymarket agent."""
 from __future__ import annotations
 
 import argparse
@@ -7,27 +7,55 @@ import sys
 from pathlib import Path
 
 from agents.prompt_agent import PromptAgent, PromptAgentError
+from agents.tool_agent import ToolAgent, ToolAgentError
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the Manifold prompt agent to gather opportunities.")
+    parser = argparse.ArgumentParser(description="Run the Polymarket agent (LLM tool loop or heuristic).")
+    parser.add_argument(
+        "--agent",
+        choices=("tool", "prompt"),
+        default="tool",
+        help="Agent implementation to run (default: tool)",
+    )
     parser.add_argument("--limit", type=int, default=40, help="Number of markets to consider")
     parser.add_argument(
         "--sort",
         type=str,
         default="last-bet-time",
-        help="Sort order for Manifold markets (created-time, updated-time, last-bet-time, last-comment-time)",
+        help="Sort order for Polymarket markets (last-bet-time, updated-time, volume24h, liquidity)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="OpenAI model name for tool agent (default: env OPENAI_MODEL or gpt-4o-mini)",
+    )
+    parser.add_argument("--max-steps", type=int, default=12, help="Max LLM/tool iterations (tool agent only)")
+    parser.add_argument(
+        "--debug-tools",
+        action="store_true",
+        help="Print tool invocation logs (tool agent only)",
     )
     args = parser.parse_args(argv)
 
     _load_env_defaults()
-    agent = PromptAgent()
-    try:
-        plan = agent.run(limit=args.limit, sort=args.sort)
-    except PromptAgentError as exc:
-        print(f"Agent failed: {exc}", file=sys.stderr)
-        return 1
-    print(plan.as_text())
+    if args.agent == "prompt":
+        agent = PromptAgent()
+        try:
+            plan = agent.run(limit=args.limit, sort=args.sort)
+        except PromptAgentError as exc:
+            print(f"Agent failed: {exc}", file=sys.stderr)
+            return 1
+        print(plan.as_text())
+    else:
+        agent = ToolAgent(model=args.model, max_steps=args.max_steps, debug_tools=args.debug_tools)
+        try:
+            transcript = agent.run(limit=args.limit, sort=args.sort)
+        except ToolAgentError as exc:
+            print(f"Tool agent failed: {exc}", file=sys.stderr)
+            return 1
+        print(transcript)
     return 0
 
 

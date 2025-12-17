@@ -8,7 +8,7 @@ from typing import Dict, Iterable, List, Optional, Protocol, Sequence, Union
 
 
 class OutcomeSide(str, Enum):
-    """Canonical Manifold-style outcomes; more can be added later."""
+    """Canonical binary prediction-market outcomes; more can be added later."""
 
     YES = "YES"
     NO = "NO"
