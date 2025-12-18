@@ -48,3 +48,17 @@
 1. Implement Step 0: scaffold `core/agent_interface.py` with types and decision-packet structure.
 2. Stand up read-only Polymarket connector (Step 1) to unblock downstream layers.
 3. Decide on DB/ORM stack to begin Step 3 shortly after connector types stabilize.
+
+## LangChain Prototype (Current Work)
+- `agent/tools.py` wraps existing market fetch, portfolio snapshot, and web search helpers as LangChain `StructuredTool`s so the LLM can invoke them autonomously. Extend this file whenever we add a new capability (pricing models, execution endpoints, research fetchers, risk checks).
+- `agent_runner.py` is the first LangChain entry point. It builds a `create_tool_calling_agent` pipeline with our tools and runs it once per invocation. Usage:
+
+```bash
+pip install langchain langchain-openai "openai<2.0" duckduckgo_search
+OPENAI_API_KEY=... POLYMARKET_WALLET_ADDRESS=... python agent_runner.py \
+  --instruction "Daily session..." --model gpt-4o-mini --max-steps 8
+```
+
+- Requirements: `langchain-openai` currently expects `openai<2.0`, so pin the OpenAI SDK accordingly before running. `duckduckgo_search` is optional but enables the search tool.
+- Output: the runner prints intermediate tool calls (because `verbose=True`) and ends with a consolidated plan that includes trade ideas, sizing, and follow-up research.
+- Next extensions: add persistent memory (Redis/SQL), integrate authenticated order placement as a guarded tool, add risk-engine tools the agent must call before recommending trades, and persist each run’s reasoning/logs for review.
