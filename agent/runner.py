@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 import textwrap
 from typing import Any, Dict
@@ -15,6 +14,17 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "8"))
+DEFAULT_TEMPERATURE = float(os.environ.get("AGENT_TEMPERATURE", "0.2"))
+DEFAULT_INSTRUCTION = os.environ.get(
+    "AGENT_INSTRUCTION",
+    (
+        "Daily session (1 of 365 this year): start by checking the portfolio snapshot to learn available cash and "
+        "risk metrics, inspect the latest markets, run research for any non-obvious catalysts, then produce a plan to "
+        "make money. Spread bets so the bankroll can last all year instead of spending everything today. Highlight "
+        "concrete trades, per-trade sizing in dollars or % bankroll, catalysts, hedge opportunities, and specific "
+        "follow-up research."
+    ),
+)
 
 
 def _build_llm(model: str, temperature: float):
@@ -34,9 +44,15 @@ def _build_prompt() -> ChatPromptTemplate:
         You are Agent-Time, an autonomous prediction-market operator. Your goal is to make money on
         Polymarket while respecting risk constraints and liquidity. You only wake up once every 24 hours,
         so every run must gather context (portfolio, markets, news), plan trades, and output a clear action plan
-        without assuming follow-up during the day. Use the available tools to research markets, inspect existing
-        exposure, and request additional information when needed. When you are satisfied, provide a final summary
-        that specifies the best opportunities, desired sizing, risk notes, and any research still pending.
+        without assuming follow-up during the day. You will repeat this process daily for at least 365 sessions,
+        so conserve bankroll and leave dry powder for future runs instead of spending everything at once. Always begin
+        by calling the `portfolio_snapshot` tool so you know
+        the wallet's cash, realized/unrealized PnL, and current exposures before sizing trades. Use
+        `duckduckgo_search` whenever you cite catalysts or need fresh information—back up each recommendation with
+        at least one relevant fact. Call `polymarket_market_details` whenever you need token IDs for trading, and only
+        invoke `polymarket_place_order` after you have justified a specific trade, confirmed sizing, and ensured it
+        fits within bankroll limits. When you are satisfied, provide a final summary that specifies the best
+        opportunities, desired sizing, dollar spend (or % of bankroll), risk notes, and any research still pending.
         """
     ).strip()
     return ChatPromptTemplate.from_messages(
@@ -73,40 +89,13 @@ def run_daily_session(instruction: str, *, model: str, temperature: float, max_s
     return executor.invoke(inputs)
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--instruction",
-        default=(
-            "Daily session: inspect the latest markets and the current portfolio, then produce a plan to make money. "
-            "Highlight concrete trades, sizing, and catalysts. Ask for research if needed."
-        ),
-        help="High-level instruction passed to the agent.",
-    )
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Chat model to use (default: {DEFAULT_MODEL}).")
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=0.2,
-        help="Sampling temperature for the model (default: 0.2).",
-    )
-    parser.add_argument(
-        "--max-steps",
-        type=int,
-        default=DEFAULT_MAX_STEPS,
-        help=f"Maximum tool calls/iterations (default: {DEFAULT_MAX_STEPS}).",
-    )
-    return parser.parse_args()
-
-
 def main() -> None:
-    args = parse_args()
     try:
         result = run_daily_session(
-            args.instruction,
-            model=args.model,
-            temperature=args.temperature,
-            max_steps=args.max_steps,
+            DEFAULT_INSTRUCTION,
+            model=DEFAULT_MODEL,
+            temperature=DEFAULT_TEMPERATURE,
+            max_steps=DEFAULT_MAX_STEPS,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Agent run failed: {exc}")

@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 from textwrap import indent, fill
 
-import env_loader  # noqa: F401
+import utils.env_loader as env_loader  # noqa: F401
 
 GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events/pagination"
 

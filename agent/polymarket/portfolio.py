@@ -15,7 +15,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple
 
-import env_loader  # noqa: F401
+import utils.env_loader as env_loader  # noqa: F401
 
 USER_AGENT = "Mozilla/5.0 (compatible; AgentTimeBot/1.0; +https://polymarket.com)"
 DEFAULT_API_ROOT = "https://clob.polymarket.com"
@@ -147,6 +147,20 @@ def fetch_portfolio_snapshot(wallet: str) -> PortfolioSnapshot:
         raise ValueError("wallet address is required")
     tried_urls: List[str] = []
     last_http_exc: Optional[urllib.error.HTTPError] = None
+    auth_error: Optional[Exception] = None
+
+    if _has_auth_credentials():
+        try:
+            payload, attempted = _fetch_authenticated_portfolio_payload(wallet)
+            if attempted:
+                tried_urls.extend(attempted)
+            snapshot = _parse_snapshot(wallet, payload)
+            if snapshot.cash_balance is None:
+                snapshot.cash_balance = _fetch_cash_balance(wallet)
+            return snapshot
+        except Exception as exc:  # noqa: BLE001
+            auth_error = exc
+
     for url in _portfolio_url_candidates(wallet):
         tried_urls.append(url)
         request = urllib.request.Request(
@@ -161,7 +175,10 @@ def fetch_portfolio_snapshot(wallet: str) -> PortfolioSnapshot:
                 if response.status != 200:
                     raise RuntimeError(f"Portfolio API returned {response.status} {response.reason}")
                 payload = json.load(response)
-            return _parse_snapshot(wallet, payload)
+            snapshot = _parse_snapshot(wallet, payload)
+            if snapshot.cash_balance is None:
+                snapshot.cash_balance = _fetch_cash_balance(wallet)
+            return snapshot
         except urllib.error.HTTPError as exc:
             last_http_exc = exc
             # Some deployments don't expose certain endpoints; try the next option on 404/405.
@@ -171,12 +188,6 @@ def fetch_portfolio_snapshot(wallet: str) -> PortfolioSnapshot:
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Network error contacting portfolio API ({url}): {exc}") from exc
 
-    if _has_auth_credentials():
-        payload, attempted = _fetch_authenticated_portfolio_payload(wallet)
-        if attempted:
-            tried_urls.extend(attempted)
-        return _parse_snapshot(wallet, payload)
-
     tried = ", ".join(tried_urls) if tried_urls else "none"
     message = (
         "Portfolio API request failed for all endpoints. "
@@ -184,6 +195,9 @@ def fetch_portfolio_snapshot(wallet: str) -> PortfolioSnapshot:
         "provide valid Polymarket API credentials. "
         f"Tried: {tried}"
     )
+    if auth_error:
+        message += f" (Authenticated request also failed: {auth_error})"
+        raise RuntimeError(message) from auth_error
     if last_http_exc:
         raise RuntimeError(message) from last_http_exc
     raise RuntimeError(message)
@@ -293,6 +307,111 @@ def _parse_snapshot(wallet: str, payload: object) -> PortfolioSnapshot:
 __all__ = ["PortfolioPosition", "PortfolioSnapshot", "fetch_portfolio_snapshot"]
 
 
+def _fetch_cash_balance(wallet: str) -> Optional[float]:
+    """Fetch the custodial USDC balance via the balance-allowance endpoint."""
+    if not wallet or not _has_auth_credentials():
+        return None
+    api_key = os.environ.get("POLYMARKET_API_KEY")
+    api_secret = os.environ.get("POLYMARKET_SECRET")
+    api_passphrase = os.environ.get("POLYMARKET_PASSPHRASE")
+    if not (api_key and api_secret and api_passphrase):
+        return None
+    try:
+        decimals = int(os.environ.get("POLYMARKET_CASH_DECIMALS", "6"))
+    except ValueError:
+        decimals = 6
+    payload = _fetch_cash_payload_http(wallet, api_key, api_secret, api_passphrase)
+    if payload is None:
+        payload = _fetch_cash_payload_via_client(wallet)
+    if not isinstance(payload, dict):
+        return None
+    raw_balance = payload.get("balance")
+    try:
+        scaled = int(raw_balance) / float(10**decimals)
+    except (TypeError, ValueError):
+        return None
+    return scaled
+
+
+def _fetch_cash_payload_http(
+    wallet: str, api_key: str, api_secret: str, api_passphrase: str
+) -> Optional[object]:
+    api_root = os.environ.get("POLYMARKET_CASH_API_ROOT") or DEFAULT_API_ROOT
+    api_root = api_root.rstrip("/")
+    client = _AuthenticatedPolymarketClient(
+        api_root=api_root,
+        api_key=api_key,
+        api_secret=api_secret,
+        api_passphrase=api_passphrase,
+        wallet_address=wallet,
+    )
+    params = {
+        "asset_type": os.environ.get("POLYMARKET_BALANCE_ASSET_TYPE", "COLLATERAL"),
+        "signature_type": 1,
+    }
+    token_id = os.environ.get("POLYMARKET_BALANCE_TOKEN_ID")
+    if token_id is not None:
+        params["token_id"] = token_id
+    query = urllib.parse.urlencode(params, doseq=True)
+    path = f"/balance-allowance?{query}"
+    try:
+        payload = client.get(path)
+        return payload
+    except Exception:
+        if os.environ.get("POLYMARKET_DEBUG"):
+            print("POLYMARKET_DEBUG: balance HTTP request failed.", flush=True)
+    return None
+
+
+def _fetch_cash_payload_via_client(wallet: str) -> Optional[object]:
+    """Use py_clob_client if available to mirror the successful manual call."""
+    private_key = os.environ.get("POLYMARKET_PRIVATE_KEY")
+    if not private_key:
+        return None
+    try:
+        from py_clob_client.client import ClobClient
+        from py_clob_client.clob_types import AssetType, BalanceAllowanceParams, ApiCreds
+    except ImportError:
+        if os.environ.get("POLYMARKET_DEBUG"):
+            print("POLYMARKET_DEBUG: py_clob_client not installed.", flush=True)
+        return None
+
+    api_root = os.environ.get("POLYMARKET_CASH_API_ROOT") or DEFAULT_API_ROOT
+    signature_type = int(os.environ.get("POLYMARKET_SIGNATURE_TYPE", "1"))
+    chain_id = int(os.environ.get("POLYMARKET_CHAIN_ID", "137"))
+    client = ClobClient(
+        host=api_root,
+        key=private_key,
+        chain_id=chain_id,
+        funder=wallet,
+        signature_type=signature_type,
+    )
+    # Prefer explicit API credentials if supplied, otherwise derive them.
+    api_key = os.environ.get("POLYMARKET_API_KEY")
+    api_secret = os.environ.get("POLYMARKET_SECRET")
+    api_passphrase = os.environ.get("POLYMARKET_PASSPHRASE")
+    if api_key and api_secret and api_passphrase:
+        creds = ApiCreds(
+            api_key=api_key,
+            api_secret=api_secret,
+            api_passphrase=api_passphrase,
+        )
+    else:
+        creds = client.create_or_derive_api_creds()
+    client.set_api_creds(creds)
+    params = BalanceAllowanceParams(
+        asset_type=AssetType.COLLATERAL,
+        token_id=os.environ.get("POLYMARKET_BALANCE_TOKEN_ID") or "",
+        signature_type=signature_type,
+    )
+    try:
+        return client.get_balance_allowance(params)
+    except Exception:
+        if os.environ.get("POLYMARKET_DEBUG"):
+            print("POLYMARKET_DEBUG: py_clob_client balance fetch failed.", flush=True)
+        return None
+
+
 def _has_auth_credentials() -> bool:
     return all(
         os.environ.get(name)
@@ -312,6 +431,7 @@ def _fetch_authenticated_portfolio_payload(wallet: str) -> Tuple[object, List[st
         api_key=api_key,
         api_secret=api_secret,
         api_passphrase=api_passphrase,
+        wallet_address=wallet,
     )
     attempted: List[str] = []
     last_http_exc: Optional[urllib.error.HTTPError] = None
@@ -347,12 +467,14 @@ class _AuthenticatedPolymarketClient:
         api_secret: str,
         api_passphrase: str,
         timeout: float = 10.0,
+        wallet_address: Optional[str] = None,
     ) -> None:
         self._api_root = api_root.rstrip("/")
         self._api_key = api_key
         self._api_secret = api_secret
         self._api_passphrase = api_passphrase
         self._timeout = timeout
+        self._wallet_address = wallet_address
 
     def get(self, path: str) -> object:
         return self._request("GET", path)
@@ -360,22 +482,30 @@ class _AuthenticatedPolymarketClient:
     def _request(self, method: str, path: str, body: object | None = None) -> object:
         url, request_path = self._build_url(path)
         body_text, body_bytes = self._serialize_body(body)
-        timestamp = str(int(time.time() * 1000))
+        timestamp = str(int(time.time()))
         signature = self._sign(timestamp, method.upper(), request_path, body_text)
+
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-API-KEY": self._api_key,
+            "X-API-SIGNATURE": signature,
+            "X-API-TIMESTAMP": timestamp,
+            "X-API-PASSPHRASE": self._api_passphrase,
+            "POLY_API_KEY": self._api_key,
+            "POLY_SIGNATURE": signature,
+            "POLY_TIMESTAMP": timestamp,
+            "POLY_PASSPHRASE": self._api_passphrase,
+        }
+        if self._wallet_address:
+            headers["POLY_ADDRESS"] = self._wallet_address
 
         request = urllib.request.Request(
             url,
             data=body_bytes,
             method=method.upper(),
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "X-API-KEY": self._api_key,
-                "X-API-SIGNATURE": signature,
-                "X-API-TIMESTAMP": timestamp,
-                "X-API-PASSPHRASE": self._api_passphrase,
-            },
+            headers=headers,
         )
         if body_bytes is None:
             request.data = None  # type: ignore[assignment]

@@ -4,15 +4,21 @@
 from __future__ import annotations
 
 import argparse
+import calendar
+import os
 from dataclasses import dataclass
+from datetime import date
 from typing import Iterable, List, Optional
 
-import env_loader  # noqa: F401
+import utils.env_loader as env_loader  # noqa: F401
 
-try:
-    from duckduckgo_search import DDGS
+try:  # pragma: no cover - optional dependency
+    from ddgs import DDGS  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
-    DDGS = None  # type: ignore[assignment]
+    try:
+        from duckduckgo_search import DDGS  # type: ignore
+    except ImportError:
+        DDGS = None  # type: ignore[assignment]
 
 DEFAULT_SEARCH_LIMIT = 5
 
@@ -30,20 +36,51 @@ class SearchResult:
     snippet: str
 
 
+def _resolve_timelimit() -> Optional[str]:
+    explicit = os.environ.get("DDG_TIMELIMIT")
+    if explicit is not None:
+        explicit = explicit.strip()
+        return explicit or None
+    months = os.environ.get("DDG_RECENT_MONTHS", "6")
+    if months is None:
+        return None
+    try:
+        months_back = int(months)
+    except ValueError:
+        return None
+    if months_back <= 0:
+        return None
+    today = date.today()
+    year = today.year
+    month = today.month - months_back
+    day = today.day
+    while month <= 0:
+        month += 12
+        year -= 1
+    days_in_month = calendar.monthrange(year, month)[1]
+    if day > days_in_month:
+        day = days_in_month
+    start = date(year, month, day)
+    return f"{start.isoformat()}..{today.isoformat()}"
+
+
 def search_web(query: str, *, max_results: int = DEFAULT_SEARCH_LIMIT, region: str = "wt-wt") -> List[SearchResult]:
     """Return DuckDuckGo text search results for the query."""
     query = (query or "").strip()
     if not query:
         return []
     if DDGS is None:
-        raise WebSearchUnavailable("Install duckduckgo_search to enable web search. `pip install duckduckgo_search`.")
+        raise WebSearchUnavailable(
+            "Install the `ddgs` package to enable web search. `pip install ddgs`."
+        )
     max_results = max(1, min(max_results, 25))
+    timelimit = _resolve_timelimit()
     with DDGS(timeout=10) as ddgs:
         raw_results: Iterable[dict] = ddgs.text(
             query,
             region=region,
             safesearch="moderate",
-            timelimit=None,
+            timelimit=timelimit,
             max_results=max_results,
         )
         normalized: List[SearchResult] = []

@@ -13,8 +13,10 @@ except ImportError:  # pragma: no cover - optional dependency
 def _load() -> None:
     if load_dotenv is None:
         return
-    env_path = Path(__file__).resolve().parent / ".env"
-    load_dotenv(dotenv_path=env_path, override=False)
+    base_dir = Path(__file__).resolve().parents[1]
+    env_path = base_dir / ".env"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path, override=False)
 
 
 _load()

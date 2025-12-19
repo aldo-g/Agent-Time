@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Iterable, List
 
-from fetch_gamma import fetch_events
+from .events import fetch_events
 
 BASE_MARKET_URL = "https://polymarket.com/market"
 
@@ -95,7 +95,12 @@ def load_open_markets(limit: int, offset: int) -> List[EventSummary]:
                 outcomes.append(OutcomeQuote(name=str(name), price=price_value))
             if not outcomes:
                 continue
-            market_id = str(market.get("id") or market.get("conditionId") or "unknown")
+            market_id = str(
+                market.get("conditionId")
+                or market.get("condition_id")
+                or market.get("id")
+                or "unknown"
+            )
             question = market.get("question") or event_title
             event_summary.markets.append(
                 MarketSummary(
