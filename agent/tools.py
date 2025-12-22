@@ -236,6 +236,19 @@ def _run_place_bet(
         if not lookup_label:
             raise RuntimeError("Provide answer=<label> when betting on multi-answer markets.")
         answer_id = lookup_answer_id(details, lookup_label)
+        if not answer_id and lookup_label.strip().lower().startswith("top outcome"):
+            best_option = None
+            best_prob = -1.0
+            for option in details.answers:
+                if option.answer_id is None:
+                    continue
+                probability = option.probability if option.probability is not None else 0.0
+                if probability > best_prob:
+                    best_prob = probability
+                    best_option = option
+            if best_option:
+                answer_id = best_option.answer_id
+                target_label = best_option.label
         if not answer_id:
             raise RuntimeError(f"Unable to resolve answer '{lookup_label}'. Call manifold_market_details first.")
         target_label = lookup_label

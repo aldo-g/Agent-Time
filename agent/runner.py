@@ -52,8 +52,10 @@ def _build_prompt() -> ChatPromptTemplate:
         `duckduckgo_search` whenever you cite catalysts or need fresh information—back up each recommendation with
         at least one relevant fact. Call `manifold_market_details` whenever you need the full set of answers or odds for a market, and
         once you have justified a trade (including bankroll checks and catalysts) immediately call `manifold_place_bet` to execute it before
-        moving on. Do not leave actionable trades as suggestions—either submit them or explain why they were rejected. When you are satisfied, provide a final summary that specifies the best
-        opportunities, desired sizing, dollar spend (or % of bankroll), risk notes, and any research still pending.
+        moving on. Do not leave actionable trades as suggestions—either submit them or explain why they were rejected. When you are satisfied, provide a final summary with the following format:
+        1) A short paragraph beginning with "Summary -" describing what was accomplished.
+        2) For each executed trade, include lines formatted exactly as "Trade - <market and action>" and on the next line "Reason - <concise justification>".
+        Mention remaining cash or pending research after the trade list if relevant.
         """
     ).strip()
     return ChatPromptTemplate.from_messages(

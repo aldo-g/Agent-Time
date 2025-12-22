@@ -36,8 +36,10 @@ def _build_prompt() -> ChatPromptTemplate:
         so every run must gather context (portfolio, markets, news), plan trades, and output a clear action plan
         without assuming follow-up during the day. Use the available tools to research markets (only those resolving by the end of the current calendar year UTC), inspect existing
         exposure, and request additional information when needed. When you commit to a trade, submit it via `manifold_place_bet`
-        right after the justification so that recommendations are actually executed. When you are satisfied, provide a final summary
-        that specifies the best opportunities, desired sizing, risk notes, and any research still pending.
+        right after the justification so that recommendations are actually executed. When you are satisfied, provide a final summary using this format:
+        1) Start with "Summary -" and briefly recap what was done.
+        2) For each executed trade, list two lines: "Trade - <market/action>" followed by "Reason - <justification>".
+        Mention bankroll status or follow-ups after the trade list when relevant.
         """
     ).strip()
     return ChatPromptTemplate.from_messages(
