@@ -1,13 +1,13 @@
 # Agent-Time Plan
 
 ## Purpose & Scope
-- **Goal:** build an autonomous Polymarket prediction-market agent that consistently seeks profit while logging all reasoning and keeping risk bounded.
+- **Goal:** build an autonomous Manifold prediction-market agent (using play-money Mana) that consistently seeks profit while logging all reasoning and keeping risk bounded.
 - **North Star:** daily automated runs that evaluate markets, execute trades with clear decision packets, and publish PnL dashboards.
 - **Approach:** iterate from read-only data access toward full execution, research, and learning loops while keeping interfaces pluggable for future arenas.
 
 ## System Architecture Overview
 1. **Core Agent Interface** – Environment-agnostic observation/action/reward contract, shared types, and decision-packet logging hooks.
-2. **Connectors** – Polymarket client (read-only → execution) plus future BaseConnector for paper venues.
+2. **Connectors** – Manifold client (read-only → execution) plus future BaseConnector for other venues.
 3. **Risk Engine** – Hard rule checks (bet sizing, exposure, stop-loss, liquidity filters, kill switch) enforced before trades.
 4. **Database Layer** – Postgres migrations + ORM models for runs, market snapshots, decisions, evidence, trades, positions, pnl snapshots.
 5. **Agents** – Baseline trading logic (momentum/mean reversion/etc.), later research agent for belief estimation and evidence gathering.
@@ -19,7 +19,7 @@
 | Step | Description | Key Deliverable |
 | --- | --- | --- |
 | 0 | Core agent interface/types | `core/agent_interface.py` |
-| 1 | Polymarket read-only connector | `connectors/polymarket.py` (list/get markets/fills) |
+| 1 | Manifold read-only connector | `agent/manifold/*.py` (list/get markets, portfolio) |
 | 2 | Execution + portfolio APIs | Connector methods: `placeBet`, `sellPosition`, `getPortfolio*`, `getTransactions` |
 | 3 | Database + decision packet schema | SQL migrations + ORM models |
 | 4 | Baseline profit agent | `agents/baseline_agent.py` |
@@ -38,7 +38,7 @@
 - **Connector API Surface:** methods listed above, all returning typed responses + normalized error handling.
 
 ## Open Questions / Inputs Needed
-- Polymarket wallet/API credentials for authenticated endpoints (Steps 2+) — fill in `POLYMARKET_WALLET_ADDRESS`, `POLYMARKET_API_KEY`, `POLYMARKET_SECRET`, `POLYMARKET_PASSPHRASE`.
+- Manifold API key for authenticated endpoints (Steps 2+) — fill in `MANIFOLD_API_KEY` (and optional overrides like `MANIFOLD_API_ROOT`).
 - Postgres deployment target + connection string (local vs hosted).
 - Preferred ORM (Prisma, TypeORM, Drizzle, etc.) + migration tooling.
 - Hosting for runner + dashboard (e.g., Fly.io, Railway, Vercel, self-hosted?).
@@ -46,7 +46,7 @@
 
 ## Next Actions
 1. Implement Step 0: scaffold `core/agent_interface.py` with types and decision-packet structure.
-2. Stand up read-only Polymarket connector (Step 1) to unblock downstream layers.
+2. Stand up read-only Manifold connector (Step 1) to unblock downstream layers.
 3. Decide on DB/ORM stack to begin Step 3 shortly after connector types stabilize.
 
 ## LangChain Prototype (Current Work)
@@ -55,7 +55,7 @@
 
 ```bash
 pip install langchain langchain-openai "openai<2.0" duckduckgo_search
-OPENAI_API_KEY=... POLYMARKET_WALLET_ADDRESS=... python -m agent.runner
+OPENAI_API_KEY=... MANIFOLD_API_KEY=... python -m agent.runner
 ```
 
 - Configuration: override defaults with env vars (`OPENAI_MODEL`, `AGENT_MAX_STEPS`, `AGENT_TEMPERATURE`, `AGENT_INSTRUCTION`) instead of CLI flags.
