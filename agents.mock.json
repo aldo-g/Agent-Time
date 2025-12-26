@@ -1,0 +1,29 @@
+[
+  {
+    "name": "gpt-runner",
+    "model_provider": "openai",
+    "model": "gpt-4o-mini",
+    "manifold_key": "sk-manifold-gpt-placeholder",
+    "instruction_override": null,
+    "temperature": 0.2,
+    "max_steps": 8
+  },
+  {
+    "name": "claude-runner",
+    "model_provider": "anthropic",
+    "model": "claude-3-sonnet-20240229",
+    "manifold_key": "sk-manifold-claude-placeholder",
+    "instruction_override": null,
+    "temperature": 0.2,
+    "max_steps": 8
+  },
+  {
+    "name": "gemini-runner",
+    "model_provider": "gemini",
+    "model": "gemini-1.5-flash",
+    "manifold_key": "sk-manifold-gemini-placeholder",
+    "instruction_override": null,
+    "temperature": 0.2,
+    "max_steps": 8
+  }
+]

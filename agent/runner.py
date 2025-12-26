@@ -13,6 +13,7 @@ from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+DEFAULT_PROVIDER = os.environ.get("AGENT_LLM_PROVIDER", "openai").lower()
 DEFAULT_MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "8"))
 DEFAULT_TEMPERATURE = float(os.environ.get("AGENT_TEMPERATURE", "0.2"))
 DEFAULT_INSTRUCTION = os.environ.get(
@@ -27,15 +28,34 @@ DEFAULT_INSTRUCTION = os.environ.get(
 )
 
 
-def _build_llm(model: str, temperature: float):
-    try:
-        from langchain_openai import ChatOpenAI
-    except ImportError as exc:  # pragma: no cover - optional dependency
-        raise RuntimeError(
-            "langchain-openai is not installed. Install it with `pip install langchain-openai` "
-            "and ensure you are using an OpenAI Python package version supported by LangChain."
-        ) from exc
-    return ChatOpenAI(model=model, temperature=temperature)
+def _build_llm(model: str, temperature: float, provider: str):
+    normalized = provider.lower()
+    if normalized in {"openai", "gpt", "chatgpt"}:
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "langchain-openai is not installed. Install it with `pip install langchain-openai` "
+                "and ensure you are using an OpenAI Python package version supported by LangChain."
+            ) from exc
+        return ChatOpenAI(model=model, temperature=temperature)
+    if normalized in {"anthropic", "claude"}:
+        try:
+            from langchain_anthropic import ChatAnthropic
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "langchain-anthropic is not installed. Install it with `pip install langchain-anthropic`."
+            ) from exc
+        return ChatAnthropic(model=model, temperature=temperature)
+    if normalized in {"google", "gemini"}:
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "langchain-google-genai is not installed. Install it with `pip install langchain-google-genai`."
+            ) from exc
+        return ChatGoogleGenerativeAI(model=model, temperature=temperature)
+    raise ValueError(f"Unsupported LLM provider '{provider}'.")
 
 
 def _build_prompt() -> ChatPromptTemplate:
@@ -68,10 +88,10 @@ def _build_prompt() -> ChatPromptTemplate:
     )
 
 
-def _build_agent_executor(model: str, temperature: float, max_steps: int) -> AgentExecutor:
+def _build_agent_executor(model: str, temperature: float, provider: str, max_steps: int) -> AgentExecutor:
     tools = build_agent_tools()
     prompt = _build_prompt()
-    llm = _build_llm(model, temperature)
+    llm = _build_llm(model, temperature, provider)
     agent = create_tool_calling_agent(llm, tools, prompt)
     return AgentExecutor(
         agent=agent,
@@ -82,9 +102,16 @@ def _build_agent_executor(model: str, temperature: float, max_steps: int) -> Age
     )
 
 
-def run_daily_session(instruction: str, *, model: str, temperature: float, max_steps: int) -> Dict[str, Any]:
+def run_daily_session(
+    instruction: str,
+    *,
+    model: str,
+    provider: str,
+    temperature: float,
+    max_steps: int,
+) -> Dict[str, Any]:
     """Execute an autonomous session and return the agent's final output."""
-    executor = _build_agent_executor(model, temperature, max_steps)
+    executor = _build_agent_executor(model, temperature, provider, max_steps)
     inputs = {
         "input": instruction,
         "chat_history": [],
@@ -97,6 +124,7 @@ def main() -> None:
         result = run_daily_session(
             DEFAULT_INSTRUCTION,
             model=DEFAULT_MODEL,
+            provider=DEFAULT_PROVIDER,
             temperature=DEFAULT_TEMPERATURE,
             max_steps=DEFAULT_MAX_STEPS,
         )
