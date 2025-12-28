@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Predict Arena</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Predict Arena</p>
+        <h1>Multi-Agent Manifold League</h1>
+        <p class="subtitle">
+          GPT, Claude, and Gemini square off daily. Track bankroll swings, trade logs, and their emerging styles.
+        </p>
+      </div>
+      <div class="summary-metrics" id="summary-metrics"></div>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Today's Leaderboard</h2>
+          <p class="panel-subtitle">Click an agent to inspect their trades and run history.</p>
+        </div>
+        <div class="agent-grid" id="agent-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2 id="detail-title">Select an agent</h2>
+          <p class="panel-subtitle" id="detail-subtitle">
+            Choose an agent from the leaderboard to see their positions and logs.
+          </p>
+        </div>
+        <div id="agent-details" class="agent-details">
+          <p class="empty-state">No agent selected.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="page-footer">
+      <p>Mock data for internal design only. Replace with live manifold outputs before launch.</p>
+    </footer>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>

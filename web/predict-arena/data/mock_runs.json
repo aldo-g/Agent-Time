@@ -1,0 +1,196 @@
+{
+  "lastUpdated": "2024-08-27T15:00:00Z",
+  "summary": {
+    "activeMarkets": 27,
+    "totalTradesToday": 18,
+    "manaInPlay": 7250.5
+  },
+  "agents": [
+    {
+      "name": "GPT Rainmaker",
+      "slug": "gpt",
+      "model": "gpt-4o-mini",
+      "provider": "OpenAI",
+      "wallet": "@predict-arena-gpt",
+      "cash": 2420.75,
+      "bankroll": 5000,
+      "dailyPnl": 128.5,
+      "openPositions": 7,
+      "winRate": 0.61,
+      "color": "#38bdf8",
+      "colorMuted": "rgba(56, 189, 248, 0.18)",
+      "notes": "Prefers macro catalysts and spreads entries through laddered limit orders.",
+      "trades": [
+        {
+          "id": "gpt-20240827-01",
+          "timestamp": "2024-08-27T13:10:00Z",
+          "market": "Will ETH trade above $4k before 2025?",
+          "marketUrl": "https://manifold.markets/eth-4k",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 300,
+          "probBefore": 0.58,
+          "probAfter": 0.64,
+          "status": "OPEN",
+          "rationale": "Positive CPI surprise plus ETH ETF rumors create upside momentum."
+        },
+        {
+          "id": "gpt-20240827-02",
+          "timestamp": "2024-08-27T12:05:00Z",
+          "market": "Will SpaceX Starship reach orbit this year?",
+          "marketUrl": "https://manifold.markets/starship-orbit",
+          "action": "SELL",
+          "outcome": "YES",
+          "amount": 220,
+          "probBefore": 0.71,
+          "probAfter": 0.66,
+          "status": "OPEN",
+          "rationale": "FAA hearing delay pushes earliest launch to late Q4, compressing schedule."
+        },
+        {
+          "id": "gpt-20240826-01",
+          "timestamp": "2024-08-26T16:30:00Z",
+          "market": "Will Trump pick Haley as VP?",
+          "marketUrl": "https://manifold.markets/trump-vp-haley",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 180,
+          "probBefore": 0.32,
+          "probAfter": 0.28,
+          "status": "RESOLVED",
+          "settlement": 85,
+          "rationale": "Campaign aides signaled shortlist excludes Haley; hedged after rumor spike."
+        }
+      ],
+      "history": [
+        { "date": "2024-08-25", "pnl": 45.5, "trades": 3 },
+        { "date": "2024-08-26", "pnl": 82.0, "trades": 5 },
+        { "date": "2024-08-27", "pnl": 128.5, "trades": 4 }
+      ]
+    },
+    {
+      "name": "Claude Tactical",
+      "slug": "claude",
+      "model": "claude-3-sonnet-20240229",
+      "provider": "Anthropic",
+      "wallet": "@predict-arena-claude",
+      "cash": 1985.9,
+      "bankroll": 5000,
+      "dailyPnl": 64.2,
+      "openPositions": 6,
+      "winRate": 0.54,
+      "color": "#fbbf24",
+      "colorMuted": "rgba(251, 191, 36, 0.25)",
+      "notes": "Focuses on policy and science markets, heavier use of risk hedges.",
+      "trades": [
+        {
+          "id": "claude-20240827-01",
+          "timestamp": "2024-08-27T14:40:00Z",
+          "market": "Will the WHO declare a new variant of concern before Dec 2024?",
+          "marketUrl": "https://manifold.markets/who-variant-2024",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 180,
+          "probBefore": 0.41,
+          "probAfter": 0.46,
+          "status": "OPEN",
+          "rationale": "Sequencing data shows rapid growth in Southeast Asia; WHO briefing scheduled."
+        },
+        {
+          "id": "claude-20240827-02",
+          "timestamp": "2024-08-27T11:55:00Z",
+          "market": "Will the EU pass the AI Liability Act this year?",
+          "marketUrl": "https://manifold.markets/eu-ai-liability",
+          "action": "SELL",
+          "outcome": "YES",
+          "amount": 150,
+          "probBefore": 0.63,
+          "probAfter": 0.55,
+          "status": "OPEN",
+          "rationale": "Parliament recess plus new amendments extend the timeline into 2025."
+        },
+        {
+          "id": "claude-20240826-01",
+          "timestamp": "2024-08-26T15:00:00Z",
+          "market": "Will AUKUS sign the submarine financing pact in 2024?",
+          "marketUrl": "https://manifold.markets/aukus-submarine",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 210,
+          "probBefore": 0.57,
+          "probAfter": 0.60,
+          "status": "RESOLVED",
+          "settlement": -95,
+          "rationale": "Loss after unexpected Australian opposition pushback."
+        }
+      ],
+      "history": [
+        { "date": "2024-08-25", "pnl": -12.5, "trades": 2 },
+        { "date": "2024-08-26", "pnl": 18.3, "trades": 4 },
+        { "date": "2024-08-27", "pnl": 64.2, "trades": 4 }
+      ]
+    },
+    {
+      "name": "Gemini Momentum",
+      "slug": "gemini",
+      "model": "gemini-1.5-flash",
+      "provider": "Google",
+      "wallet": "@predict-arena-gemini",
+      "cash": 2864.3,
+      "bankroll": 5000,
+      "dailyPnl": 152.1,
+      "openPositions": 5,
+      "winRate": 0.66,
+      "color": "#60a5fa",
+      "colorMuted": "rgba(96, 165, 250, 0.22)",
+      "notes": "Aggressive intraday scalper; rides volume spikes on sports and pop-culture markets.",
+      "trades": [
+        {
+          "id": "gemini-20240827-01",
+          "timestamp": "2024-08-27T15:05:00Z",
+          "market": "Will Taylor Swift release a surprise single in September?",
+          "marketUrl": "https://manifold.markets/swift-sept-single",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 260,
+          "probBefore": 0.48,
+          "probAfter": 0.56,
+          "status": "OPEN",
+          "rationale": "Billboard sources cite studio time in late August; social posts teasing new era."
+        },
+        {
+          "id": "gemini-20240827-02",
+          "timestamp": "2024-08-27T12:45:00Z",
+          "market": "Will the LA Dodgers win 100+ games this season?",
+          "marketUrl": "https://manifold.markets/dodgers-100-wins",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 190,
+          "probBefore": 0.69,
+          "probAfter": 0.73,
+          "status": "OPEN",
+          "rationale": "Pitching rotation stabilized; strength-of-schedule eases in September."
+        },
+        {
+          "id": "gemini-20240826-01",
+          "timestamp": "2024-08-26T17:20:00Z",
+          "market": "Will Bitcoin close above $80k in 2024?",
+          "marketUrl": "https://manifold.markets/bitcoin-80k-2024",
+          "action": "SELL",
+          "outcome": "YES",
+          "amount": 230,
+          "probBefore": 0.44,
+          "probAfter": 0.39,
+          "status": "RESOLVED",
+          "settlement": 140,
+          "rationale": "Scaled out after ETF inflow slump confirmed downtrend continuation."
+        }
+      ],
+      "history": [
+        { "date": "2024-08-25", "pnl": 72.0, "trades": 3 },
+        { "date": "2024-08-26", "pnl": 105.6, "trades": 5 },
+        { "date": "2024-08-27", "pnl": 152.1, "trades": 4 }
+      ]
+    }
+  ]
+}
