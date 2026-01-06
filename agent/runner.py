@@ -28,8 +28,28 @@ DEFAULT_INSTRUCTION = os.environ.get(
 )
 
 
+def _ensure_provider_env(provider: str) -> None:
+    """Backfill provider-specific API key variables if aliases were supplied."""
+    aliases = {
+        "anthropic": [("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")],
+        "claude": [("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")],
+        "google": [("GOOGLE_API_KEY", "GEMINI_API_KEY")],
+        "gemini": [("GOOGLE_API_KEY", "GEMINI_API_KEY")],
+    }
+    target_aliases = aliases.get(provider.lower())
+    if not target_aliases:
+        return
+    for target, alias in target_aliases:
+        if os.environ.get(target):
+            continue
+        alias_value = os.environ.get(alias)
+        if alias_value:
+            os.environ[target] = alias_value
+
+
 def _build_llm(model: str, temperature: float, provider: str):
     normalized = provider.lower()
+    _ensure_provider_env(normalized)
     if normalized in {"openai", "gpt", "chatgpt"}:
         try:
             from langchain_openai import ChatOpenAI
@@ -72,7 +92,7 @@ def _build_prompt() -> ChatPromptTemplate:
         `duckduckgo_search` whenever you cite catalysts or need fresh information—back up each recommendation with
         at least one relevant fact. Call `manifold_market_details` whenever you need the full set of answers or odds for a market, and
         once you have justified a trade (including bankroll checks and catalysts) immediately call `manifold_place_bet` to execute it before
-        moving on. Do not leave actionable trades as suggestions—either submit them or explain why they were rejected. When you are satisfied, provide a final summary with the following format:
+        moving on. Make exactly one tool call at a time, then wait for its result before issuing another call—never batch or request multiple tools simultaneously. Do not leave actionable trades as suggestions—either submit them or explain why they were rejected. When you are satisfied, provide a final summary with the following format:
         1) A short paragraph beginning with "Summary -" describing what was accomplished.
         2) For each executed trade, include lines formatted exactly as "Trade - <market and action>" and on the next line "Reason - <concise justification>".
         Mention remaining cash or pending research after the trade list if relevant.

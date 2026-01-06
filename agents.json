@@ -1,0 +1,29 @@
+[
+  {
+    "name": "gpt-runner",
+    "model_provider": "openai",
+    "model": "gpt-5-mini",
+    "manifold_key_env": "MANIFOLD_API_KEY_OPENAI",
+    "instruction_override": null,
+    "temperature": 1.0,
+    "max_steps": 100
+  },
+  {
+    "name": "claude-runner",
+    "model_provider": "anthropic",
+    "model": "claude-sonnet-4-5-20250929",
+    "manifold_key_env": "MANIFOLD_API_KEY_CLAUDE",
+    "instruction_override": null,
+    "temperature": 0.2,
+    "max_steps": 100
+  },
+  {
+    "name": "gemini-runner",
+    "model_provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "manifold_key_env": "MANIFOLD_API_KEY_GEMINI",
+    "instruction_override": null,
+    "temperature": 0.2,
+    "max_steps": 100
+  }
+]

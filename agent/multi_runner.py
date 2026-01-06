@@ -6,12 +6,14 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import re
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+from agent.manifold.data import EventSummary, events_to_dicts, load_open_markets
 from agent.runner import (
     DEFAULT_INSTRUCTION,
     DEFAULT_MAX_STEPS,
@@ -19,8 +21,18 @@ from agent.runner import (
     run_daily_session,
 )
 
-DEFAULT_CONFIG_PATH = os.environ.get("AGENT_CONFIG_PATH", "agents.example.json")
+DEFAULT_CONFIG_PATH = os.environ.get("AGENT_CONFIG_PATH", "agents.json")
 DEFAULT_RESULTS_PATH = os.environ.get("AGENT_RESULTS_PATH", "results/multi_agent_runs.jsonl")
+MARKET_CACHE_ENV = "PREDICT_ARENA_MARKET_CACHE"
+DEFAULT_MARKET_CACHE_PATH = Path(os.environ.get(MARKET_CACHE_ENV, "data/shared_markets.json"))
+DEFAULT_MARKET_LIMIT = int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "40"))
+PROVIDER_LABELS = {
+    "openai": "OpenAI",
+    "anthropic": "Claude",
+    "claude": "Claude",
+    "gemini": "Gemini",
+    "google": "Gemini",
+}
 
 
 @dataclass
@@ -110,7 +122,89 @@ def _persist_result(record: Dict[str, Any], path: str) -> None:
         handle.write("\n")
 
 
-def run_multi_agent(configs: List[AgentConfig], *, results_path: str) -> None:
+def _prepare_market_cache(limit: int, cache_path: Path) -> List[EventSummary] | None:
+    try:
+        events = load_open_markets(limit, 0)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Warning: unable to fetch shared market snapshot ({exc}). Agents will fetch individually.")
+        return None
+    snapshot = {
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "limit": limit,
+        "events": events_to_dicts(events),
+    }
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with cache_path.open("w", encoding="utf-8") as handle:
+        json.dump(snapshot, handle)
+    os.environ[MARKET_CACHE_ENV] = str(cache_path)
+    os.environ["PREDICT_ARENA_MARKET_FETCHED_AT"] = snapshot["fetched_at"]
+    os.environ["PREDICT_ARENA_MARKET_COUNT"] = str(len(snapshot["events"]))
+    print(f"Shared market snapshot saved to {cache_path} ({len(snapshot['events'])} markets).")
+    return events
+
+
+def _parse_trades_from_output(output: object) -> List[Dict[str, str]]:
+    if not isinstance(output, str):
+        return []
+    trades: List[Dict[str, str]] = []
+    last_trade = None
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        clean_line = line.strip("*_- ")
+        match_trade = re.search(r"trade\s*-\s*(.+)", clean_line, flags=re.IGNORECASE)
+        if match_trade:
+            last_trade = {"trade": match_trade.group(1).strip("* "), "reason": ""}
+            trades.append(last_trade)
+            continue
+        match_reason = re.search(r"reason\s*-\s*(.+)", clean_line, flags=re.IGNORECASE)
+        if match_reason and last_trade is not None:
+            last_trade["reason"] = match_reason.group(1).strip()
+    filtered = [
+        {"trade": entry["trade"], "reason": entry["reason"]}
+        for entry in trades
+        if entry.get("trade")
+    ]
+    return filtered
+
+
+def _print_session_summary(
+    market_events: List[EventSummary] | None,
+    agent_records: List[Dict[str, Any]],
+) -> None:
+    print("\n=== Session Snapshot ===")
+    if market_events:
+        print("Markets provided:")
+        for event in market_events:
+            label = event.title or event.event_id
+            url_note = f" ({event.url})" if event.url else ""
+            print(f"- {label}{url_note}")
+    else:
+        print("Markets provided: unavailable (live fetch failed).")
+    print("\nTrades:")
+    for record in agent_records:
+        label = PROVIDER_LABELS.get(record["provider"].lower(), record["agent"])
+        trades = record.get("trades") or []
+        if not trades:
+            status = "success" if record.get("success") else "failed"
+            reason = record.get("error") or "No trades recorded."
+            print(f"{label}: ({status}) {reason}")
+            continue
+        for trade in trades:
+            reason = trade.get("reason", "").strip()
+            reason_note = f" - {reason}" if reason else ""
+            print(f"{label}: {trade['trade']}{reason_note}")
+
+
+def run_multi_agent(
+    configs: List[AgentConfig],
+    *,
+    results_path: str,
+    market_limit: int,
+    market_cache_path: Path | None = None,
+) -> None:
+    cache_path = market_cache_path or DEFAULT_MARKET_CACHE_PATH
+    market_events = _prepare_market_cache(market_limit, cache_path)
+    session_records: List[Dict[str, Any]] = []
     for cfg in configs:
         timestamp = datetime.now(timezone.utc).isoformat()
         manifold_key = cfg.resolve_manifold_key()
@@ -144,8 +238,17 @@ def run_multi_agent(configs: List[AgentConfig], *, results_path: str) -> None:
             "error": error,
         }
         _persist_result(record, results_path)
+        record_summary = {
+            "agent": cfg.name,
+            "provider": cfg.model_provider,
+            "success": success,
+            "error": error,
+            "trades": _parse_trades_from_output(output),
+        }
+        session_records.append(record_summary)
         if success:
             print(f"Agent '{cfg.name}' completed.")
+    _print_session_summary(market_events, session_records)
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -160,6 +263,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RESULTS_PATH,
         help="Where to append JSONL run records.",
     )
+    parser.add_argument(
+        "--market-limit",
+        type=int,
+        default=DEFAULT_MARKET_LIMIT,
+        help="Number of markets to fetch once and share with all agents.",
+    )
+    parser.add_argument(
+        "--market-cache",
+        default=str(DEFAULT_MARKET_CACHE_PATH),
+        help="File path for the shared market snapshot JSON.",
+    )
     return parser
 
 
@@ -167,7 +281,12 @@ def main() -> None:
     parser = _build_arg_parser()
     args = parser.parse_args()
     configs = load_agent_configs(args.config)
-    run_multi_agent(configs, results_path=args.results)
+    run_multi_agent(
+        configs,
+        results_path=args.results,
+        market_limit=args.market_limit,
+        market_cache_path=Path(args.market_cache),
+    )
 
 
 if __name__ == "__main__":

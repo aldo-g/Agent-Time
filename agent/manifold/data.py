@@ -6,7 +6,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Iterable, List, Sequence
 
 from agent.manifold.constants import MANIFOLD_API_ROOT, MAX_API_LIMIT, RESOLUTION_CUTOFF_MS
@@ -181,9 +181,58 @@ def load_open_markets(limit: int, offset: int) -> List[EventSummary]:
     return summaries
 
 
+def events_to_dicts(events: Iterable[EventSummary]) -> List[dict]:
+    """Serialize EventSummary objects into JSON-friendly dictionaries."""
+    return [asdict(event) for event in events]
+
+
+def _market_from_dict(entry: dict) -> MarketSummary:
+    outcomes = []
+    for outcome in entry.get("outcomes", []):
+        if not isinstance(outcome, dict):
+            continue
+        name = str(outcome.get("name", ""))
+        try:
+            price = float(outcome.get("price", 0.0))
+        except (TypeError, ValueError):
+            price = 0.0
+        outcomes.append(OutcomeQuote(name=name, price=price))
+    return MarketSummary(
+        event_id=str(entry.get("event_id") or entry.get("eventId") or ""),
+        event_title=str(entry.get("event_title") or entry.get("eventTitle") or entry.get("title") or ""),
+        market_id=str(entry.get("market_id") or entry.get("marketId") or entry.get("id") or ""),
+        question=str(entry.get("question") or entry.get("event_title") or "Untitled market"),
+        url=entry.get("url"),
+        outcomes=outcomes,
+        tags=[str(tag) for tag in entry.get("tags", []) if isinstance(tag, str)],
+    )
+
+
+def events_from_dicts(records: Iterable[dict]) -> List[EventSummary]:
+    """Deserialize dictionaries back into EventSummary instances."""
+    deserialized: List[EventSummary] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        markets_input = record.get("markets") or []
+        markets = [_market_from_dict(market) for market in markets_input if isinstance(market, dict)]
+        deserialized.append(
+            EventSummary(
+                event_id=str(record.get("event_id") or record.get("eventId") or ""),
+                title=str(record.get("title") or ""),
+                url=record.get("url"),
+                tags=[str(tag) for tag in record.get("tags", []) if isinstance(tag, str)],
+                markets=markets,
+            )
+        )
+    return deserialized
+
+
 __all__ = [
     "EventSummary",
     "MarketSummary",
     "OutcomeQuote",
     "load_open_markets",
+    "events_to_dicts",
+    "events_from_dicts",
 ]

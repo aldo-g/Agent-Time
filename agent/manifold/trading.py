@@ -117,10 +117,15 @@ def place_bet(
     if amount <= 0:
         raise ValueError("amount must be positive.")
     resolved_id = fetch_market_details(market_id).market_id
+    # Manifold's API expects outcome YES/NO for binary markets even when betting on multi-answer markets.
+    # When answer_id is provided we default to buying YES shares on that specific answer.
+    outcome_value = outcome.upper()
+    if answer_id:
+        outcome_value = "YES"
     body: Dict[str, object] = {
         "amount": amount,
         "contractId": resolved_id,
-        "outcome": outcome.upper(),
+        "outcome": outcome_value,
     }
     if answer_id:
         body["answerId"] = answer_id
@@ -147,7 +152,7 @@ def place_bet(
         prob_value = None
     return BetReceipt(
         bet_id=bet_id if isinstance(bet_id, str) else None,
-        outcome=outcome.upper(),
+        outcome=outcome_value,
         amount=amount_value,
         shares=shares_value,
         probability=prob_value,
