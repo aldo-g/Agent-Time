@@ -1,4 +1,4 @@
-"""LangChain tool definitions that expose Agent-Time capabilities to an LLM."""
+"""Manifold-related tool implementations."""
 
 from __future__ import annotations
 
@@ -8,23 +8,18 @@ import os
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 import urllib.parse
-import urllib.request
-import xml.etree.ElementTree as ET
-
-from langchain_core.pydantic_v1 import BaseModel, Field
-from langchain_core.tools import StructuredTool
 
 from agent.manifold.constants import RESOLUTION_CUTOFF_MS
 from agent.manifold.data import EventSummary, MarketSummary, events_from_dicts, load_open_markets
 from agent.manifold.history import fetch_market_history
 from agent.manifold.portfolio import PortfolioSnapshot, PortfolioPosition, fetch_portfolio_snapshot
-from agent.manifold.trading import MarketDetails, fetch_market_details, lookup_answer_id, place_bet
-
-try:  # pragma: no cover - optional dependency
-    from agent.web.web_search import WebSearchUnavailable, search_web
-except Exception:  # pragma: no cover - optional dependency
-    WebSearchUnavailable = None  # type: ignore[assignment]
-    search_web = None  # type: ignore[assignment]
+from agent.manifold.trading import (
+    MarketDetails,
+    fetch_market_details,
+    lookup_answer_id,
+    place_bet,
+    sell_position,
+)
 
 
 CUTOFF_ISO = datetime.fromtimestamp(RESOLUTION_CUTOFF_MS / 1000, tz=timezone.utc).date().isoformat()
@@ -34,135 +29,6 @@ RISK_MAX_BET_PCT = float(os.environ.get("RISK_MAX_BET_PCT", "0.05"))
 RISK_MAX_SINGLE_POSITION_PCT = float(os.environ.get("RISK_MAX_SINGLE_POSITION_PCT", "0.2"))
 RISK_MAX_GROSS_EXPOSURE_PCT = float(os.environ.get("RISK_MAX_GROSS_EXPOSURE_PCT", "0.7"))
 KELLY_MULTIPLIER = float(os.environ.get("RISK_KELLY_MULTIPLIER", "0.5"))
-RSS_URLS_ENV = "NEWS_RSS_URLS"
-DEFAULT_RSS_URLS = ["https://feeds.reuters.com/reuters/topNews"]
-BLUESKY_API_URL = os.environ.get("BLUESKY_API_URL", "https://public.api.bsky.app")
-
-
-class FetchMarketsInput(BaseModel):
-    """Inputs for the market discovery tool."""
-
-    limit: int = Field(20, ge=1, le=200, description="Number of events to inspect (max 200).")
-    offset: int = Field(0, ge=0, description="Pagination offset (multiples of limit).")
-
-
-class PortfolioInput(BaseModel):
-    """Inputs for the portfolio snapshot tool."""
-
-    wallet: str | None = Field(
-        default=None,
-        description="Deprecated. Manifold accounts are inferred from MANIFOLD_API_KEY.",
-    )
-    required: bool = Field(
-        default=False,
-        description="If true, raise an error when the wallet cannot be resolved.",
-    )
-
-
-class MarketDetailsInput(BaseModel):
-    """Inputs for the Manifold market lookup tool."""
-
-    market_id: str = Field(..., description="Manifold market id or slug.")
-
-
-class PlaceBetInput(BaseModel):
-    """Inputs for the Manifold bet placement tool."""
-
-    market_id: str = Field(..., description="Manifold market id or slug.")
-    outcome: str = Field(..., description="Desired outcome (YES/NO or answer label).")
-    amount: float = Field(..., gt=0.0, description="Mana to wager on the outcome.")
-    limit_prob: float | None = Field(
-        default=None,
-        gt=0.0,
-        lt=1.0,
-        description="Optional limit probability (0-1). Leave empty for a market order.",
-    )
-    answer: str | None = Field(
-        default=None,
-        description="Optional answer label for multi-choice markets when outcome alone is ambiguous.",
-    )
-
-
-class SearchInput(BaseModel):
-    """Inputs for the DuckDuckGo search tool."""
-
-    query: str = Field(..., description="Keywords to search for.")
-    limit: int = Field(
-        default=5,
-        ge=1,
-        le=25,
-        description="Maximum number of results to return (1-25).",
-    )
-
-
-class RssFetchInput(BaseModel):
-    """Inputs for the RSS/news fetch tool."""
-
-    query: str | None = Field(
-        default=None,
-        description="Optional keyword filter applied to titles/snippets.",
-    )
-    limit: int = Field(default=10, ge=1, le=50, description="Maximum items to return.")
-    sources: List[str] | None = Field(
-        default=None,
-        description="Optional list of RSS URLs to override the default NEWS_RSS_URLS set.",
-    )
-
-
-class BlueskySearchInput(BaseModel):
-    """Inputs for the Bluesky search tool."""
-
-    query: str = Field(..., description="Search terms, hashtags, or keywords.")
-    limit: int = Field(default=10, ge=1, le=50, description="Maximum posts to return.")
-
-
-class MarketHistoryInput(BaseModel):
-    """Inputs for the market history tool."""
-
-    market_id: str = Field(..., description="Manifold market id or slug.")
-    limit: int = Field(default=200, ge=1, le=500, description="Number of recent bets to analyze.")
-
-
-class PortfolioAnalyticsInput(BaseModel):
-    """Inputs for the portfolio analytics tool."""
-
-    max_positions: int = Field(
-        default=5,
-        ge=1,
-        le=50,
-        description="Number of largest positions to surface.",
-    )
-
-
-class EventTimerInput(BaseModel):
-    """Inputs for the event timer tool."""
-
-    market_id: str = Field(..., description="Manifold market id or slug.")
-
-
-class RiskGateInput(BaseModel):
-    """Inputs for the risk gate tool."""
-
-    market_id: str = Field(..., description="Manifold market id or slug.")
-    outcome: str = Field(..., description="YES/NO or answer label.")
-    amount: float = Field(..., gt=0.0, description="Proposed Mana to wager.")
-    belief_prob: float = Field(
-        ...,
-        gt=0.0,
-        lt=1.0,
-        description="Agent's subjective probability (0-1).",
-    )
-    market_prob: float | None = Field(
-        default=None,
-        gt=0.0,
-        lt=1.0,
-        description="Current market probability (0-1).",
-    )
-    bankroll: float | None = Field(
-        default=None,
-        gt=0.0,
-        description="Optional bankroll override; uses cash + positions if omitted.",
-    )
 
 
 def _summarize_event(event: EventSummary) -> str:
@@ -188,6 +54,20 @@ def _summarize_event(event: EventSummary) -> str:
 def _summarize_events(events: Iterable[EventSummary]) -> str:
     descriptions = [_summarize_event(event) for event in events]
     return "\n\n".join(descriptions) if descriptions else "No open markets were returned."
+
+
+def _normalize_market_identifier(market_id: str) -> str:
+    if not market_id:
+        return market_id
+    cleaned = market_id.strip().strip(".,;:!?)\"]'")
+    if "manifold.markets" in cleaned:
+        parsed = urllib.parse.urlparse(cleaned)
+        path = parsed.path.strip("/")
+        if path:
+            return path.split("/")[-1].strip(".,;:!?)\"]'")
+    if any(char.isspace() for char in cleaned):
+        cleaned = cleaned.split()[0]
+    return cleaned
 
 
 def _load_cached_markets() -> List[EventSummary] | None:
@@ -257,22 +137,6 @@ def _summarize_portfolio(snapshot: PortfolioSnapshot) -> str:
     return "\n".join(lines)
 
 
-def _summarize_search_results(results: List[object]) -> str:
-    if not results:
-        return "No results."
-    lines = []
-    for idx, result in enumerate(results, 1):
-        title = getattr(result, "title", "Untitled result")
-        url = getattr(result, "url", "")
-        snippet = getattr(result, "snippet", "")
-        lines.append(f"{idx}. {title}")
-        if url:
-            lines.append(f"   {url}")
-        if snippet:
-            lines.append(f"   {snippet}")
-    return "\n".join(lines)
-
-
 def _run_fetch_markets(limit: int = 20, offset: int = 0) -> str:
     cached = _load_cached_markets()
     if cached:
@@ -294,7 +158,7 @@ def _run_portfolio(wallet: str | None = None, required: bool = False) -> str:
 
 
 def _run_market_details(market_id: str) -> str:
-    details = fetch_market_details(market_id)
+    details = fetch_market_details(_normalize_market_identifier(market_id))
     lines = [
         f"Market {details.market_id} details:",
         f"Question: {details.question}",
@@ -326,7 +190,7 @@ def _run_place_bet(
 ) -> str:
     if amount <= 0:
         raise RuntimeError("amount must be positive.")
-    details = fetch_market_details(market_id)
+    details = fetch_market_details(_normalize_market_identifier(market_id))
     if details.close_time is None:
         raise RuntimeError("Cannot trade markets without a close date.")
     if details.close_time > RESOLUTION_CUTOFF_MS:
@@ -378,6 +242,107 @@ def _run_place_bet(
         f"Bet ID: {receipt.bet_id or 'unknown'}."
     )
     return summary
+
+
+def _run_sell_position(
+    *,
+    market_id: str,
+    outcome: str,
+    shares: float,
+    answer: Optional[str] = None,
+) -> str:
+    if shares <= 0:
+        raise RuntimeError("shares must be positive.")
+    details = fetch_market_details(_normalize_market_identifier(market_id))
+    target_label = outcome.strip()
+    answer_id = None
+    outcome_type = details.outcome_type.upper()
+    if outcome_type in {"BINARY", "PSEUDO_NUMERIC"}:
+        normalized = target_label.upper()
+        if normalized not in {"YES", "NO"}:
+            raise RuntimeError("Binary markets only accept YES or NO outcomes.")
+        target_label = normalized
+    else:
+        lookup_label = answer or target_label
+        if not lookup_label:
+            raise RuntimeError("Provide answer=<label> when selling multi-answer markets.")
+        answer_id = lookup_answer_id(details, lookup_label)
+        if not answer_id:
+            raise RuntimeError(f"Unable to resolve answer '{lookup_label}'. Call manifold_market_details first.")
+        target_label = lookup_label
+    snapshot = fetch_portfolio_snapshot(None)
+    holding = None
+    for position in snapshot.positions:
+        if position.market_id != details.market_id:
+            continue
+        if position.outcome.strip().lower() == target_label.strip().lower():
+            holding = position
+            break
+    if holding and abs(holding.shares) + 1e-6 < shares:
+        raise RuntimeError(
+            f"Sell shares {shares:.2f} exceeds holding {abs(holding.shares):.2f} for {target_label}."
+        )
+    receipt = sell_position(
+        market_id=details.market_id,
+        outcome=target_label,
+        shares=shares,
+        answer_id=answer_id,
+    )
+    summary = (
+        f"Sold {shares:.2f} shares of '{target_label}' in market {details.market_id}. "
+        f"Bet ID: {receipt.bet_id or 'unknown'}."
+    )
+    return summary
+
+
+def _resolve_market_prob(details: MarketDetails, outcome: str, answer: Optional[str]) -> Optional[float]:
+    outcome_type = details.outcome_type.upper()
+    if outcome_type in {"BINARY", "PSEUDO_NUMERIC"}:
+        normalized = outcome.strip().upper()
+        for option in details.answers:
+            if option.label.upper() == normalized:
+                return option.probability
+        return None
+    lookup_label = answer or outcome
+    if not lookup_label:
+        return None
+    for option in details.answers:
+        if option.label.strip().lower() == lookup_label.strip().lower():
+            return option.probability
+    return None
+
+
+def _run_limit_order_preview(
+    *,
+    market_id: str,
+    outcome: str,
+    amount: float,
+    limit_prob: Optional[float] = None,
+    answer: Optional[str] = None,
+) -> str:
+    details = fetch_market_details(_normalize_market_identifier(market_id))
+    market_prob = _resolve_market_prob(details, outcome, answer)
+    lines = [
+        f"Market: {details.question}",
+        f"Order: {amount:.2f} on {outcome}",
+    ]
+    if market_prob is None:
+        lines.append("Market probability unavailable; preview is approximate.")
+        return "\n".join(lines)
+    lines.append(f"Current implied probability: {market_prob:.2%}")
+    if limit_prob is None:
+        lines.append("Limit: none (market order); expected fill near current probability.")
+        return "\n".join(lines)
+    slippage = abs(limit_prob - market_prob)
+    lines.append(f"Limit probability: {limit_prob:.2%}")
+    lines.append(f"Estimated slippage vs market: {slippage:.2%}")
+    if limit_prob > market_prob:
+        lines.append("Limit above market: likely immediate fill.")
+    elif limit_prob < market_prob:
+        lines.append("Limit below market: may rest on the book until price moves.")
+    else:
+        lines.append("Limit at market: likely immediate fill.")
+    return "\n".join(lines)
 
 
 def _estimate_bankroll(snapshot: PortfolioSnapshot) -> Tuple[float, float]:
@@ -436,7 +401,7 @@ def _run_portfolio_analytics(max_positions: int = 5) -> str:
 
 
 def _run_event_timer(market_id: str) -> str:
-    details = fetch_market_details(market_id)
+    details = fetch_market_details(_normalize_market_identifier(market_id))
     if details.close_time is None:
         return f"Market {details.market_id} has no close time on record."
     close_dt = datetime.fromtimestamp(details.close_time / 1000, tz=timezone.utc)
@@ -470,7 +435,7 @@ def _run_risk_gate(
         bankroll, gross_exposure = _estimate_bankroll(snapshot)
     else:
         gross_exposure = 0.0
-    details = fetch_market_details(market_id)
+    details = fetch_market_details(_normalize_market_identifier(market_id))
     if market_prob is None:
         if details.outcome_type.upper() in {"BINARY", "PSEUDO_NUMERIC"}:
             for option in details.answers:
@@ -508,112 +473,8 @@ def _run_risk_gate(
     return "\n".join(lines)
 
 
-def _run_search(query: str, limit: int = 5) -> str:
-    if search_web is None:
-        raise RuntimeError("Web search tool unavailable. Install duckduckgo_search to enable it.")
-    try:
-        results = search_web(query, max_results=limit)
-    except WebSearchUnavailable as exc:  # pragma: no cover - optional dependency
-        raise RuntimeError(str(exc)) from exc
-    return _summarize_search_results(results)
-
-
-def _load_rss_sources(sources: Optional[List[str]]) -> List[str]:
-    if sources:
-        return [source for source in sources if isinstance(source, str)]
-    env_value = os.environ.get(RSS_URLS_ENV, "")
-    sources_from_env = [entry.strip() for entry in env_value.split(",") if entry.strip()]
-    return sources_from_env or DEFAULT_RSS_URLS
-
-
-def _parse_rss_feed(xml_bytes: bytes) -> List[dict]:
-    root = ET.fromstring(xml_bytes)
-    items = []
-    for item in root.findall(".//item"):
-        title = item.findtext("title") or "Untitled"
-        link = item.findtext("link") or ""
-        pub_date = item.findtext("pubDate") or item.findtext("{http://purl.org/dc/elements/1.1/}date") or ""
-        description = item.findtext("description") or ""
-        items.append(
-            {
-                "title": title.strip(),
-                "link": link.strip(),
-                "pub_date": pub_date.strip(),
-                "description": description.strip(),
-            }
-        )
-    return items
-
-
-def _run_rss_fetch(
-    query: Optional[str] = None,
-    limit: int = 10,
-    sources: Optional[List[str]] = None,
-) -> str:
-    feeds = _load_rss_sources(sources)
-    if not feeds:
-        raise RuntimeError("No RSS feeds configured. Set NEWS_RSS_URLS or pass sources=[].")
-    items: List[dict] = []
-    for feed in feeds:
-        try:
-            with urllib.request.urlopen(feed, timeout=10) as response:
-                xml_bytes = response.read()
-            items.extend(_parse_rss_feed(xml_bytes))
-        except Exception:
-            continue
-    if query:
-        needle = query.lower()
-        items = [
-            item
-            for item in items
-            if needle in item.get("title", "").lower() or needle in item.get("description", "").lower()
-        ]
-    if not items:
-        return "No results."
-    lines = []
-    for idx, item in enumerate(items[:limit], 1):
-        lines.append(f"{idx}. {item.get('title')}")
-        if item.get("link"):
-            lines.append(f"   {item.get('link')}")
-        if item.get("pub_date"):
-            lines.append(f"   {item.get('pub_date')}")
-    return "\n".join(lines)
-
-
-def _run_bluesky_search(query: str, limit: int = 10) -> str:
-    endpoint = f"{BLUESKY_API_URL.rstrip('/')}/xrpc/app.bsky.feed.searchPosts"
-    params = {"q": query, "limit": limit}
-    url = f"{endpoint}?{urllib.parse.urlencode(params)}"
-    request = urllib.request.Request(url, headers={"Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=10) as response:
-        payload = json.load(response)
-    posts = payload.get("posts") if isinstance(payload, dict) else []
-    if not isinstance(posts, list) or not posts:
-        return "No results."
-    lines = []
-    for idx, post in enumerate(posts[:limit], 1):
-        if not isinstance(post, dict):
-            continue
-        author = post.get("author", {})
-        handle = ""
-        if isinstance(author, dict):
-            handle = author.get("handle") or ""
-        record = post.get("record", {})
-        text = ""
-        if isinstance(record, dict):
-            text = record.get("text") or ""
-        line = f"{idx}. {text.strip()}"
-        if handle:
-            line += f" (@{handle})"
-        lines.append(line)
-        uri = post.get("uri")
-        if uri:
-            lines.append(f"   {uri}")
-    return "\n".join(lines) if lines else "No results."
-
-
 def _run_market_history(market_id: str, limit: int = 200) -> str:
-    details = fetch_market_details(market_id)
+    details = fetch_market_details(_normalize_market_identifier(market_id))
     bets = fetch_market_history(details.market_id, limit=limit)
     if not bets:
         return f"No recent bets found for market {details.market_id}."
@@ -635,111 +496,15 @@ def _run_market_history(market_id: str, limit: int = 200) -> str:
     return "\n".join(lines)
 
 
-def build_agent_tools() -> List[StructuredTool]:
-    """Return the list of LangChain tools exposed to the trading agent."""
-    fetch_tool = StructuredTool.from_function(
-        name="manifold_markets",
-        func=_run_fetch_markets,
-        description=(
-            "Inspect live Manifold markets sorted by 24h volume. "
-            "Use this to discover actionable opportunities."
-        ),
-        args_schema=FetchMarketsInput,
-    )
-    portfolio_tool = StructuredTool.from_function(
-        name="manifold_portfolio",
-        func=_run_portfolio,
-        description=(
-            "Retrieve the latest Manifold account snapshot for the authenticated API key. "
-            "Call this before sizing trades to respect exposure and risk."
-        ),
-        args_schema=PortfolioInput,
-    )
-    market_details_tool = StructuredTool.from_function(
-        name="manifold_market_details",
-        func=_run_market_details,
-        description="Look up metadata, answers, and URLs for a Manifold market before trading it.",
-        args_schema=MarketDetailsInput,
-    )
-    portfolio_analytics_tool = StructuredTool.from_function(
-        name="portfolio_analytics",
-        func=_run_portfolio_analytics,
-        description=(
-            "Summarize portfolio exposure, concentration risk, and top positions. "
-            "Use before sizing trades to avoid overexposure."
-        ),
-        args_schema=PortfolioAnalyticsInput,
-    )
-    event_timer_tool = StructuredTool.from_function(
-        name="event_timer",
-        func=_run_event_timer,
-        description="Report how long until a market closes and flag cutoff violations.",
-        args_schema=EventTimerInput,
-    )
-    risk_gate_tool = StructuredTool.from_function(
-        name="risk_gate",
-        func=_run_risk_gate,
-        description=(
-            "Check a proposed bet against bankroll and concentration limits, "
-            "and return a Kelly-style sizing hint."
-        ),
-        args_schema=RiskGateInput,
-    )
-    place_bet_tool = StructuredTool.from_function(
-        name="manifold_place_bet",
-        func=_run_place_bet,
-        description=(
-            "Submit a Manifold bet using play-money Mana. Provide the market_id, desired outcome or answer "
-            "label, optional limit probability, and Mana amount. The tool will fail if you try to wager more "
-            "than the available balance."
-        ),
-        args_schema=PlaceBetInput,
-    )
-    tools = [
-        fetch_tool,
-        portfolio_tool,
-        portfolio_analytics_tool,
-        event_timer_tool,
-        risk_gate_tool,
-        market_details_tool,
-        place_bet_tool,
-    ]
-    if search_web is not None:
-        search_tool = StructuredTool.from_function(
-            name="duckduckgo_search",
-            func=_run_search,
-            description="Run a DuckDuckGo search to gather fresh news or data.",
-            args_schema=SearchInput,
-        )
-        tools.append(search_tool)
-    rss_tool = StructuredTool.from_function(
-        name="rss_fetch",
-        func=_run_rss_fetch,
-        description="Pull headlines from configured RSS feeds, optionally filtered by keyword.",
-        args_schema=RssFetchInput,
-    )
-    news_tool = StructuredTool.from_function(
-        name="news_api",
-        func=_run_rss_fetch,
-        description="Alias for rss_fetch to pull curated headlines.",
-        args_schema=RssFetchInput,
-    )
-    history_tool = StructuredTool.from_function(
-        name="manifold_market_history",
-        func=_run_market_history,
-        description="Summarize recent bet activity for a Manifold market.",
-        args_schema=MarketHistoryInput,
-    )
-    bluesky_tool = StructuredTool.from_function(
-        name="bluesky_search",
-        func=_run_bluesky_search,
-        description="Search public Bluesky posts for recent sentiment or catalysts.",
-        args_schema=BlueskySearchInput,
-    )
-    tools.extend([rss_tool, news_tool, history_tool, bluesky_tool])
-    return tools
-
-
 __all__ = [
-    "build_agent_tools",
+    "_run_event_timer",
+    "_run_fetch_markets",
+    "_run_limit_order_preview",
+    "_run_market_details",
+    "_run_market_history",
+    "_run_place_bet",
+    "_run_portfolio",
+    "_run_portfolio_analytics",
+    "_run_risk_gate",
+    "_run_sell_position",
 ]

@@ -160,6 +160,49 @@ def place_bet(
     )
 
 
+def sell_position(
+    *,
+    market_id: str,
+    outcome: str,
+    shares: float,
+    answer_id: Optional[str] = None,
+) -> BetReceipt:
+    """Sell shares in a Manifold position."""
+    if shares <= 0:
+        raise ValueError("shares must be positive.")
+    resolved_id = fetch_market_details(market_id).market_id
+    outcome_value = outcome.upper()
+    if answer_id:
+        outcome_value = "YES"
+    body: Dict[str, object] = {
+        "contractId": resolved_id,
+        "shares": shares,
+        "outcome": outcome_value,
+    }
+    if answer_id:
+        body["answerId"] = answer_id
+    payload = _api_request("/sell", method="POST", body=body)
+    if not isinstance(payload, dict):
+        raise RuntimeError("Unexpected response from Manifold sell endpoint.")
+    bet_id = payload.get("betId") or payload.get("id")
+    try:
+        amount_value = float(payload.get("amount"))
+    except (TypeError, ValueError):
+        amount_value = 0.0
+    try:
+        prob_value = float(payload.get("probAfter"))
+    except (TypeError, ValueError):
+        prob_value = None
+    return BetReceipt(
+        bet_id=bet_id if isinstance(bet_id, str) else None,
+        outcome=outcome_value,
+        amount=amount_value,
+        shares=shares,
+        probability=prob_value,
+        response=payload,
+    )
+
+
 def lookup_answer_id(details: MarketDetails, label: str) -> Optional[str]:
     """Best-effort match from a user-provided label to a Manifold answer id."""
     if not label:
@@ -251,4 +294,5 @@ __all__ = [
     "fetch_market_details",
     "lookup_answer_id",
     "place_bet",
+    "sell_position",
 ]

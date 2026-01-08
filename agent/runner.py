@@ -8,6 +8,7 @@ import textwrap
 from typing import Any, Dict
 
 import utils.env_loader as env_loader  # noqa: F401
+from agent.callbacks import ToolCallTracker
 from agent.tools import build_agent_tools
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -136,7 +137,13 @@ def run_daily_session(
         "input": instruction,
         "chat_history": [],
     }
-    return executor.invoke(inputs)
+    tracker = ToolCallTracker()
+    result = executor.invoke(inputs, config={"callbacks": [tracker]})
+    if isinstance(result, dict):
+        result["tool_calls"] = tracker.successful_tools
+        result["tool_calls_unique"] = sorted(set(tracker.successful_tools))
+        result["tool_call_failures"] = tracker.failed_tools
+    return result
 
 
 def main() -> None:

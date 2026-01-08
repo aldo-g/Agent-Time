@@ -184,15 +184,20 @@ def _print_session_summary(
     for record in agent_records:
         label = PROVIDER_LABELS.get(record["provider"].lower(), record["agent"])
         trades = record.get("trades") or []
+        tool_calls = record.get("tool_calls") or []
         if not trades:
             status = "success" if record.get("success") else "failed"
             reason = record.get("error") or "No trades recorded."
             print(f"{label}: ({status}) {reason}")
+            if tool_calls:
+                print(f"{label} tools: {', '.join(tool_calls)}")
             continue
         for trade in trades:
             reason = trade.get("reason", "").strip()
             reason_note = f" - {reason}" if reason else ""
             print(f"{label}: {trade['trade']}{reason_note}")
+        if tool_calls:
+            print(f"{label} tools: {', '.join(tool_calls)}")
 
 
 def run_multi_agent(
@@ -223,10 +228,19 @@ def run_multi_agent(
                     max_steps=cfg.resolve_max_steps(),
                 )
                 output = result.get("output") if isinstance(result, dict) else result
+                tool_calls = result.get("tool_calls_unique") if isinstance(result, dict) else None
                 success = True
             except Exception as exc:  # noqa: BLE001
                 error = str(exc)
+                if cfg.model_provider.lower() in {"gemini", "google"}:
+                    lowered = error.lower()
+                    if "resourceexhausted" in lowered or "quota" in lowered or "429" in lowered:
+                        error = (
+                            "Gemini quota hit (429 ResourceExhausted). "
+                            "Check your plan/usage limits and retry later."
+                        )
                 print(f"Agent '{cfg.name}' failed: {error}")
+                tool_calls = None
         record = {
             "timestamp": timestamp,
             "agent": cfg.name,
@@ -236,6 +250,7 @@ def run_multi_agent(
             "success": success,
             "output": output,
             "error": error,
+            "tool_calls": tool_calls,
         }
         _persist_result(record, results_path)
         record_summary = {
@@ -244,6 +259,7 @@ def run_multi_agent(
             "success": success,
             "error": error,
             "trades": _parse_trades_from_output(output),
+            "tool_calls": tool_calls,
         }
         session_records.append(record_summary)
         if success:
