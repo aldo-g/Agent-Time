@@ -1,0 +1,319 @@
+{
+  "lastUpdated": "2026-01-10T01:02:22.860691+00:00",
+  "summary": {
+    "activeMarkets": 33,
+    "totalTradesToday": 3,
+    "manaInPlay": 393.0
+  },
+  "agents": [
+    {
+      "name": "gpt-runner",
+      "slug": "gpt-runner",
+      "model": "gpt-5-mini",
+      "provider": "OpenAI",
+      "wallet": "AgentChatGPT",
+      "cash": 1043.6412111335085,
+      "bankroll": 2452.22974567697,
+      "totalAssets": 2452.22974567697,
+      "dailyPnl": 0.0,
+      "openPositions": 10,
+      "winRate": 0.0,
+      "color": "#38bdf8",
+      "colorMuted": "rgba(56, 189, 248, 0.18)",
+      "notes": "Auto-synced from daily Agent-Time runs.",
+      "trades": [
+        {
+          "id": "g5Ilypc9npCI",
+          "timestamp": "2026-01-10T00:24:44.742725+00:00",
+          "market": "US government shutdown by January 31st 2026?",
+          "marketUrl": "https://manifold.markets/brod/us-government-shutdown-by-january-3",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 50.0,
+          "probBefore": 0.22549907892002477,
+          "probAfter": 0.22873720127032726,
+          "status": "OPEN"
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-01-10",
+          "pnl": 0.0,
+          "trades": 1
+        }
+      ],
+      "tradesToday": 1,
+      "positions": [
+        {
+          "market_id": "0r7CYWde6DojE7zo3Fwe",
+          "question": "Will Trump successfully appeal the hush money case?",
+          "outcome": "YES",
+          "shares": 909.439187248151,
+          "avg_price": 0.5497893724075573,
+          "mark_price": 0.5527825133540191,
+          "pnl": 2.7220796696693332
+        },
+        {
+          "market_id": "t6PsNSn8hh",
+          "question": "What will be the balance of power in Congress after the 2026 midterms?",
+          "outcome": "Democratic House, Republican Senate",
+          "shares": 471.38346244441686,
+          "avg_price": 0.6364245331058352,
+          "mark_price": 0.6223133269140441,
+          "pnl": -6.651789233953621
+        },
+        {
+          "market_id": "E2tc0ZhAAN",
+          "question": "Will Anthropic\u2019s next model release be Claude 5?",
+          "outcome": "NO",
+          "shares": 170.88544514388548,
+          "avg_price": 0.8777810180012702,
+          "mark_price": 0.883659137979342,
+          "pnl": 1.0044851490619762
+        },
+        {
+          "market_id": "aHoa5MTpKAuyQOzAaVE7",
+          "question": "A current EU member state will announce a referendum to leave the EU by the end of 2025",
+          "outcome": "YES",
+          "shares": 3928.9211006837354,
+          "avg_price": 0.025452280012087127,
+          "mark_price": 0.038299728869753184,
+          "pnl": 50.47661290683932
+        },
+        {
+          "market_id": "05dqAZOsUI",
+          "question": "US lowers tariffs on India before February 19, 2026?",
+          "outcome": "YES",
+          "shares": 425.80425136348026,
+          "avg_price": 0.3397805436106285,
+          "mark_price": 0.2740886561382762,
+          "pnl": -27.971884965818948
+        }
+      ]
+    },
+    {
+      "name": "claude-runner",
+      "slug": "claude-runner",
+      "model": "claude-sonnet-4-5-20250929",
+      "provider": "Claude",
+      "wallet": "AgentClaude",
+      "cash": 1512.4019531890742,
+      "bankroll": 2393.367337089018,
+      "totalAssets": 2393.367337089018,
+      "dailyPnl": 0.0,
+      "openPositions": 14,
+      "winRate": 0.0,
+      "color": "#fbbf24",
+      "colorMuted": "rgba(251, 191, 36, 0.25)",
+      "notes": "Auto-synced from daily Agent-Time runs.",
+      "trades": [
+        {
+          "id": "62nzZcqpZt85",
+          "timestamp": "2026-01-10T00:28:19.187337+00:00",
+          "market": "US government shutdown by January 31st 2026?",
+          "marketUrl": "https://manifold.markets/brod/us-government-shutdown-by-january-3",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 48.0,
+          "probBefore": 0.7712627987296727,
+          "probAfter": 0.227817397956838,
+          "status": "OPEN"
+        },
+        {
+          "id": "pycc0In2Ryh6",
+          "timestamp": "2026-01-09T23:58:37.808896+00:00",
+          "market": "Republicans have a House majority after 2026 midterms?",
+          "marketUrl": "https://manifold.markets/JeromeHPowell/republicans-have-house-majority-aft",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 40.0,
+          "probBefore": 0.14450639546001262,
+          "probAfter": 0.1590472659377996,
+          "status": "OPEN"
+        },
+        {
+          "id": "A5RNgLlAPOgP",
+          "timestamp": "2026-01-09T23:56:24.580877+00:00",
+          "market": "Will the DTCC launch their tokenization service in 2026?",
+          "marketUrl": "https://manifold.markets/RexSalisbury/will-the-dtcc-launch-their-tokeniza",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 40.0,
+          "probBefore": 0.3982715232510538,
+          "probAfter": 0.5955881531968602,
+          "status": "OPEN"
+        },
+        {
+          "id": "CUcEgOSy8U0O",
+          "timestamp": "2026-01-09T23:55:35.140873+00:00",
+          "market": "Will iran going for preemptive strikes on israel and US based by 11 jan 2026",
+          "marketUrl": "https://manifold.markets/Foy/will-iran-going-for-preemptive-stri",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 35.0,
+          "probBefore": 0.9316368410336644,
+          "probAfter": 0.06717090832213825,
+          "status": "OPEN"
+        },
+        {
+          "id": "P5LsIP608dR5",
+          "timestamp": "2026-01-09T23:53:48.516987+00:00",
+          "market": "Tesla has more fully autonomous rides than Waymo in 2026?",
+          "marketUrl": "https://manifold.markets/JamesGrugett/tesla-serves-more-fully-autonomous",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 45.0,
+          "probBefore": 0.6784028656631904,
+          "probAfter": 0.320248785726512,
+          "status": "OPEN"
+        },
+        {
+          "id": "E86gCA28Stul",
+          "timestamp": "2026-01-09T23:52:41.598650+00:00",
+          "market": "Will Ayatollah Kamenei Flee Iran before Feb 6 2026?",
+          "marketUrl": "https://manifold.markets/LarsOsborne/will-ayatollah-kamenei-flee-iran-be",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 40.0,
+          "probBefore": 0.8584702840114079,
+          "probAfter": 0.1371748748066377,
+          "status": "OPEN"
+        },
+        {
+          "id": "R00tPSpNLtZL",
+          "timestamp": "2026-01-09T23:51:52.785779+00:00",
+          "market": "US Military drone strike in Mexico before EOY2026?",
+          "marketUrl": "https://manifold.markets/BoltonBailey/us-military-drone-strike-in-mexico-L2NLlg0Quz",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 50.0,
+          "probBefore": 0.5342278889529503,
+          "probAfter": 0.7116444426224857,
+          "status": "OPEN"
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-01-09",
+          "pnl": 0.0,
+          "trades": 6
+        }
+      ],
+      "tradesToday": 1,
+      "positions": [
+        {
+          "market_id": "gzP8zzN0ZI",
+          "question": "Will any US oil company reach a market capitalization of over $1 trillion in 2026?",
+          "outcome": "NO",
+          "shares": 315.7251940161871,
+          "avg_price": 0.31673113801261304,
+          "mark_price": 0.792815432500442,
+          "pnl": 150.31180624522935
+        },
+        {
+          "market_id": "ygqNAq9sSS",
+          "question": "Will Highguard be delayed",
+          "outcome": "YES",
+          "shares": 125.42701227830831,
+          "avg_price": 0.5979573190628468,
+          "mark_price": 0.657157055867386,
+          "pnl": 7.425246115055567
+        },
+        {
+          "market_id": "c0pPUgQpUl",
+          "question": "Will there be a trillionaire by June 2026?",
+          "outcome": "YES",
+          "shares": 137.8563932614518,
+          "avg_price": 0.4569973035673233,
+          "mark_price": 0.5337580815867137,
+          "pnl": 10.581964001696083
+        },
+        {
+          "market_id": "05dqAZOsUI",
+          "question": "US lowers tariffs on India before February 19, 2026?",
+          "outcome": "NO",
+          "shares": 96.18384232944095,
+          "avg_price": 0.6238053975270915,
+          "mark_price": 0.7259113438617237,
+          "pnl": 9.820942243148624
+        },
+        {
+          "market_id": "2UzOS5u0g2",
+          "question": "US Military drone strike in Mexico before EOY2026?",
+          "outcome": "YES",
+          "shares": 79.71844615832178,
+          "avg_price": 0.6272074081913163,
+          "mark_price": 0.7116444426224857,
+          "pnl": 6.731189183069545
+        }
+      ]
+    },
+    {
+      "name": "gemini-runner",
+      "slug": "gemini-runner",
+      "model": "gemini-2.5-flash",
+      "provider": "Gemini",
+      "wallet": "AgentGemini",
+      "cash": 859.0454545454545,
+      "bankroll": 1012.4487253754648,
+      "totalAssets": 1012.4487253754648,
+      "dailyPnl": 0.0,
+      "openPositions": 3,
+      "winRate": 0.0,
+      "color": "#60a5fa",
+      "colorMuted": "rgba(96, 165, 250, 0.22)",
+      "notes": "Auto-synced from daily Agent-Time runs.",
+      "trades": [
+        {
+          "id": "hEdtInUhA5q2",
+          "timestamp": "2026-01-10T01:02:22.860691+00:00",
+          "market": "US government shutdown by January 31st 2026?",
+          "marketUrl": "https://manifold.markets/brod/us-government-shutdown-by-january-3",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 45.0,
+          "probBefore": 0.7754190211396381,
+          "probAfter": 0.2237396501020157,
+          "status": "OPEN"
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-01-10",
+          "pnl": 0.0,
+          "trades": 1
+        }
+      ],
+      "tradesToday": 1,
+      "positions": [
+        {
+          "market_id": "6yqgcsulhh",
+          "question": "U.S. BEV sales exceed 87,000 units in December 2025?",
+          "outcome": "YES",
+          "shares": 222.53251323612108,
+          "avg_price": 0.4943097905126477,
+          "mark_price": 0.37596374185588033,
+          "pnl": -26.335843639154707
+        },
+        {
+          "market_id": "yZsEz8UdZS",
+          "question": "US government shutdown by January 31st 2026?",
+          "outcome": "NO",
+          "shares": 58.00165235232089,
+          "avg_price": 0.7758399661901936,
+          "mark_price": 0.7762603498979843,
+          "pnl": 0.0243829496738581
+        },
+        {
+          "market_id": "BpoEJNtlQoDBpfjBmK0y",
+          "question": "Will Republicans win the Senate in the 2026 elections?",
+          "outcome": "NO",
+          "shares": 88.37381982575954,
+          "avg_price": 0.282889209149166,
+          "mark_price": 0.27966123415531274,
+          "pnl": -0.28526848050884385
+        }
+      ]
+    }
+  ]
+}

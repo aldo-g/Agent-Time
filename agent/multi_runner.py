@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from agent.manifold.data import EventSummary, events_to_dicts, load_open_markets
+from agent.manifold.portfolio import PortfolioSnapshot, fetch_portfolio_snapshot
 from agent.runner import (
     DEFAULT_INSTRUCTION,
     DEFAULT_MAX_STEPS,
@@ -122,6 +123,45 @@ def _persist_result(record: Dict[str, Any], path: str) -> None:
         handle.write("\n")
 
 
+def _estimate_bankroll(snapshot: PortfolioSnapshot) -> tuple[float, float]:
+    cash = snapshot.cash_balance or 0.0
+    net_value = 0.0
+    gross_exposure = 0.0
+    for position in snapshot.positions:
+        value = position.estimated_value()
+        if value is None:
+            continue
+        net_value += value
+        gross_exposure += abs(value)
+    return cash + net_value, gross_exposure
+
+
+def _snapshot_to_dict(snapshot: PortfolioSnapshot) -> Dict[str, Any]:
+    bankroll, gross_exposure = _estimate_bankroll(snapshot)
+    positions = [
+        {
+            "market_id": position.market_id,
+            "question": position.question,
+            "outcome": position.outcome,
+            "shares": position.shares,
+            "avg_price": position.avg_price,
+            "mark_price": position.mark_price,
+            "pnl": position.pnl,
+        }
+        for position in snapshot.positions[:5]
+    ]
+    return {
+        "wallet": snapshot.wallet,
+        "cash_balance": snapshot.cash_balance,
+        "realized_pnl": snapshot.realized_pnl,
+        "unrealized_pnl": snapshot.unrealized_pnl,
+        "bankroll": bankroll,
+        "gross_exposure": gross_exposure,
+        "open_positions": len(snapshot.positions),
+        "positions": positions,
+    }
+
+
 def _prepare_market_cache(limit: int, cache_path: Path) -> List[EventSummary] | None:
     try:
         events = load_open_markets(limit, 0)
@@ -218,7 +258,14 @@ def run_multi_agent(
         success = False
         output: str | Dict[str, Any] | None = None
         error: str | None = None
-        with _temporary_env("MANIFOLD_API_KEY", manifold_key):
+        portfolio_snapshot = None
+        portfolio_error = None
+        with (
+            _temporary_env("MANIFOLD_API_KEY", manifold_key),
+            _temporary_env("AGENT_NAME", cfg.name),
+            _temporary_env("AGENT_PROVIDER", cfg.model_provider),
+            _temporary_env("AGENT_MODEL", cfg.model),
+        ):
             try:
                 result = run_daily_session(
                     instruction,
@@ -230,6 +277,11 @@ def run_multi_agent(
                 output = result.get("output") if isinstance(result, dict) else result
                 tool_calls = result.get("tool_calls_unique") if isinstance(result, dict) else None
                 success = True
+                try:
+                    snapshot = fetch_portfolio_snapshot(None)
+                    portfolio_snapshot = _snapshot_to_dict(snapshot)
+                except Exception as exc:  # noqa: BLE001
+                    portfolio_error = str(exc)
             except Exception as exc:  # noqa: BLE001
                 error = str(exc)
                 if cfg.model_provider.lower() in {"gemini", "google"}:
@@ -251,6 +303,8 @@ def run_multi_agent(
             "output": output,
             "error": error,
             "tool_calls": tool_calls,
+            "portfolio": portfolio_snapshot,
+            "portfolio_error": portfolio_error,
         }
         _persist_result(record, results_path)
         record_summary = {

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -15,6 +16,10 @@ import utils.env_loader as env_loader  # noqa: F401
 from agent.manifold.constants import MANIFOLD_API_ROOT, MAX_API_LIMIT
 USER_AGENT = "AgentTimeBot/1.0 (+https://manifold.markets)"
 DEFAULT_BETS_LIMIT = int(os.environ.get("MANIFOLD_BETS_LIMIT", "500"))
+MAX_API_RETRIES = int(os.environ.get("MANIFOLD_API_RETRIES", "2"))
+RETRY_BACKOFF_SECONDS = float(os.environ.get("MANIFOLD_API_RETRY_BACKOFF", "0.6"))
+TRANSIENT_HTTP_CODES = {429, 502, 503, 504}
+API_TIMEOUT_SECONDS = float(os.environ.get("MANIFOLD_API_TIMEOUT", "20"))
 
 
 def _safe_float(value: object, *, default: Optional[float] = None) -> Optional[float]:
@@ -103,20 +108,29 @@ def _api_request(
             data_text = json.dumps(body)
             data_bytes = data_text.encode("utf-8")
     request = urllib.request.Request(url, data=data_bytes, headers=headers, method=method.upper())
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            if response.status != 200:
-                raise urllib.error.HTTPError(
-                    url=url,
-                    code=response.status,
-                    msg=response.reason,
-                    hdrs=response.headers,
-                    fp=response,
-                )
-            return json.load(response)
-    except urllib.error.HTTPError as exc:
-        detail = _read_error_body(exc)
-        raise RuntimeError(f"Manifold API request failed ({exc.code} {exc.reason}): {detail}") from exc
+    for attempt in range(MAX_API_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=API_TIMEOUT_SECONDS) as response:
+                if response.status != 200:
+                    raise urllib.error.HTTPError(
+                        url=url,
+                        code=response.status,
+                        msg=response.reason,
+                        hdrs=response.headers,
+                        fp=response,
+                    )
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            detail = _read_error_body(exc)
+            if exc.code in TRANSIENT_HTTP_CODES and attempt < MAX_API_RETRIES:
+                time.sleep(RETRY_BACKOFF_SECONDS * (2**attempt))
+                continue
+            raise RuntimeError(f"Manifold API request failed ({exc.code} {exc.reason}): {detail}") from exc
+        except urllib.error.URLError as exc:
+            if attempt < MAX_API_RETRIES:
+                time.sleep(RETRY_BACKOFF_SECONDS * (2**attempt))
+                continue
+            raise RuntimeError(f"Manifold API request failed (URLError): {exc}") from exc
 
 
 def _build_url(path: str, params: dict | None) -> str:
@@ -172,6 +186,11 @@ def _fetch_markets_for_bets(bets: Iterable[dict]) -> Dict[str, dict]:
             continue
         except urllib.error.URLError:
             continue
+        except RuntimeError as exc:
+            message = str(exc).lower()
+            if "404" in message or "not found" in message:
+                continue
+            raise
         if isinstance(payload, dict):
             market_map[market_id] = payload
     return market_map

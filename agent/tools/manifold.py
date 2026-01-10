@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 import urllib.parse
 
 from agent.manifold.constants import RESOLUTION_CUTOFF_MS
@@ -25,6 +25,8 @@ from agent.manifold.trading import (
 CUTOFF_ISO = datetime.fromtimestamp(RESOLUTION_CUTOFF_MS / 1000, tz=timezone.utc).date().isoformat()
 MARKET_CACHE_ENV = "PREDICT_ARENA_MARKET_CACHE"
 _MARKET_CACHE: List[EventSummary] | None = None
+TRADE_LOG_ENV = "AGENT_TRADE_LOG_PATH"
+DEFAULT_TRADE_LOG_PATH = Path(os.environ.get(TRADE_LOG_ENV, "results/trades.jsonl"))
 RISK_MAX_BET_PCT = float(os.environ.get("RISK_MAX_BET_PCT", "0.05"))
 RISK_MAX_SINGLE_POSITION_PCT = float(os.environ.get("RISK_MAX_SINGLE_POSITION_PCT", "0.2"))
 RISK_MAX_GROSS_EXPOSURE_PCT = float(os.environ.get("RISK_MAX_GROSS_EXPOSURE_PCT", "0.7"))
@@ -68,6 +70,11 @@ def _normalize_market_identifier(market_id: str) -> str:
     if any(char.isspace() for char in cleaned):
         cleaned = cleaned.split()[0]
     return cleaned
+
+
+def _is_not_found_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return "404" in message or "not found" in message or "contract not found" in message
 
 
 def _load_cached_markets() -> List[EventSummary] | None:
@@ -137,6 +144,14 @@ def _summarize_portfolio(snapshot: PortfolioSnapshot) -> str:
     return "\n".join(lines)
 
 
+def _append_trade_log(entry: Dict[str, object]) -> None:
+    log_path = Path(os.environ.get(TRADE_LOG_ENV, str(DEFAULT_TRADE_LOG_PATH)))
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry))
+        handle.write("\n")
+
+
 def _run_fetch_markets(limit: int = 20, offset: int = 0) -> str:
     cached = _load_cached_markets()
     if cached:
@@ -158,7 +173,13 @@ def _run_portfolio(wallet: str | None = None, required: bool = False) -> str:
 
 
 def _run_market_details(market_id: str) -> str:
-    details = fetch_market_details(_normalize_market_identifier(market_id))
+    normalized = _normalize_market_identifier(market_id)
+    try:
+        details = fetch_market_details(normalized)
+    except RuntimeError as exc:
+        if _is_not_found_error(exc):
+            return f"Market not found: {normalized}. It may be deleted or merged."
+        raise
     lines = [
         f"Market {details.market_id} details:",
         f"Question: {details.question}",
@@ -190,7 +211,13 @@ def _run_place_bet(
 ) -> str:
     if amount <= 0:
         raise RuntimeError("amount must be positive.")
-    details = fetch_market_details(_normalize_market_identifier(market_id))
+    normalized = _normalize_market_identifier(market_id)
+    try:
+        details = fetch_market_details(normalized)
+    except RuntimeError as exc:
+        if _is_not_found_error(exc):
+            return f"Bet skipped: market not found ({normalized})."
+        raise
     if details.close_time is None:
         raise RuntimeError("Cannot trade markets without a close date.")
     if details.close_time > RESOLUTION_CUTOFF_MS:
@@ -229,13 +256,44 @@ def _run_place_bet(
         if not answer_id:
             raise RuntimeError(f"Unable to resolve answer '{lookup_label}'. Call manifold_market_details first.")
         target_label = lookup_label
-    receipt = place_bet(
-        market_id=details.market_id,
-        outcome=target_label,
-        amount=amount,
-        limit_prob=limit_prob,
-        answer_id=answer_id,
-    )
+    prob_before = _resolve_market_prob(details, target_label, answer)
+    try:
+        receipt = place_bet(
+            market_id=details.market_id,
+            outcome=target_label,
+            amount=amount,
+            limit_prob=limit_prob,
+            answer_id=answer_id,
+        )
+    except RuntimeError as exc:
+        if _is_not_found_error(exc):
+            return f"Bet skipped: market not found ({details.market_id})."
+        raise
+    try:
+        _append_trade_log(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "agent": os.environ.get("AGENT_NAME"),
+                "provider": os.environ.get("AGENT_PROVIDER"),
+                "model": os.environ.get("AGENT_MODEL"),
+                "wallet": snapshot.wallet,
+                "action": "BUY",
+                "market_id": details.market_id,
+                "market_slug": details.slug,
+                "market": details.question,
+                "market_url": details.url,
+                "outcome": target_label,
+                "amount": receipt.amount,
+                "shares": receipt.shares,
+                "prob_before": prob_before,
+                "prob_after": receipt.probability,
+                "limit_prob": limit_prob,
+                "bet_id": receipt.bet_id,
+                "status": "OPEN",
+            }
+        )
+    except Exception:
+        pass
     limit_note = f" with limit {limit_prob * 100:.2f}%" if limit_prob is not None else ""
     summary = (
         f"Wagered {amount:.2f} MANA on '{target_label}' in market {details.market_id}{limit_note}. "
@@ -253,7 +311,13 @@ def _run_sell_position(
 ) -> str:
     if shares <= 0:
         raise RuntimeError("shares must be positive.")
-    details = fetch_market_details(_normalize_market_identifier(market_id))
+    normalized = _normalize_market_identifier(market_id)
+    try:
+        details = fetch_market_details(normalized)
+    except RuntimeError as exc:
+        if _is_not_found_error(exc):
+            return f"Sell skipped: market not found ({normalized})."
+        raise
     target_label = outcome.strip()
     answer_id = None
     outcome_type = details.outcome_type.upper()
@@ -282,12 +346,43 @@ def _run_sell_position(
         raise RuntimeError(
             f"Sell shares {shares:.2f} exceeds holding {abs(holding.shares):.2f} for {target_label}."
         )
-    receipt = sell_position(
-        market_id=details.market_id,
-        outcome=target_label,
-        shares=shares,
-        answer_id=answer_id,
-    )
+    prob_before = _resolve_market_prob(details, target_label, answer)
+    try:
+        receipt = sell_position(
+            market_id=details.market_id,
+            outcome=target_label,
+            shares=shares,
+            answer_id=answer_id,
+        )
+    except RuntimeError as exc:
+        if _is_not_found_error(exc):
+            return f"Sell skipped: market not found ({details.market_id})."
+        raise
+    try:
+        _append_trade_log(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "agent": os.environ.get("AGENT_NAME"),
+                "provider": os.environ.get("AGENT_PROVIDER"),
+                "model": os.environ.get("AGENT_MODEL"),
+                "wallet": snapshot.wallet,
+                "action": "SELL",
+                "market_id": details.market_id,
+                "market_slug": details.slug,
+                "market": details.question,
+                "market_url": details.url,
+                "outcome": target_label,
+                "amount": receipt.amount,
+                "shares": receipt.shares,
+                "prob_before": prob_before,
+                "prob_after": receipt.probability,
+                "limit_prob": None,
+                "bet_id": receipt.bet_id,
+                "status": "OPEN",
+            }
+        )
+    except Exception:
+        pass
     summary = (
         f"Sold {shares:.2f} shares of '{target_label}' in market {details.market_id}. "
         f"Bet ID: {receipt.bet_id or 'unknown'}."
@@ -320,7 +415,13 @@ def _run_limit_order_preview(
     limit_prob: Optional[float] = None,
     answer: Optional[str] = None,
 ) -> str:
-    details = fetch_market_details(_normalize_market_identifier(market_id))
+    normalized = _normalize_market_identifier(market_id)
+    try:
+        details = fetch_market_details(normalized)
+    except RuntimeError as exc:
+        if _is_not_found_error(exc):
+            return f"Preview unavailable: market not found ({normalized})."
+        raise
     market_prob = _resolve_market_prob(details, outcome, answer)
     lines = [
         f"Market: {details.question}",
@@ -401,7 +502,13 @@ def _run_portfolio_analytics(max_positions: int = 5) -> str:
 
 
 def _run_event_timer(market_id: str) -> str:
-    details = fetch_market_details(_normalize_market_identifier(market_id))
+    normalized = _normalize_market_identifier(market_id)
+    try:
+        details = fetch_market_details(normalized)
+    except RuntimeError as exc:
+        if _is_not_found_error(exc):
+            return f"Timer unavailable: market not found ({normalized})."
+        raise
     if details.close_time is None:
         return f"Market {details.market_id} has no close time on record."
     close_dt = datetime.fromtimestamp(details.close_time / 1000, tz=timezone.utc)
@@ -435,7 +542,13 @@ def _run_risk_gate(
         bankroll, gross_exposure = _estimate_bankroll(snapshot)
     else:
         gross_exposure = 0.0
-    details = fetch_market_details(_normalize_market_identifier(market_id))
+    normalized = _normalize_market_identifier(market_id)
+    try:
+        details = fetch_market_details(normalized)
+    except RuntimeError as exc:
+        if _is_not_found_error(exc):
+            return f"Risk gate skipped: market not found ({normalized})."
+        raise
     if market_prob is None:
         if details.outcome_type.upper() in {"BINARY", "PSEUDO_NUMERIC"}:
             for option in details.answers:
@@ -474,7 +587,13 @@ def _run_risk_gate(
 
 
 def _run_market_history(market_id: str, limit: int = 200) -> str:
-    details = fetch_market_details(_normalize_market_identifier(market_id))
+    normalized = _normalize_market_identifier(market_id)
+    try:
+        details = fetch_market_details(normalized)
+    except RuntimeError as exc:
+        if _is_not_found_error(exc):
+            return f"History unavailable: market not found ({normalized})."
+        raise
     bets = fetch_market_history(details.market_id, limit=limit)
     if not bets:
         return f"No recent bets found for market {details.market_id}."
