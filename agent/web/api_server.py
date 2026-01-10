@@ -20,6 +20,8 @@ from agent.manifold.portfolio import PortfolioSnapshot, fetch_portfolio_snapshot
 from agent.web.export_dashboard import build_payload
 
 logger = logging.getLogger(__name__)
+_LIVE_RUNS_CACHE: Dict[str, Any] = {"payload": None, "ts": None}
+_LIVE_RUNS_TTL_SECONDS = 30
 
 @contextmanager
 def _temporary_env(var_name: str, value: str):
@@ -157,6 +159,12 @@ class PredictArenaHandler(SimpleHTTPRequestHandler):
             self._send_json({"status": "ok"})
             return
         if self.path.startswith("/api/live-runs"):
+            now = datetime.now(timezone.utc)
+            cached_payload = _LIVE_RUNS_CACHE.get("payload")
+            cached_ts = _LIVE_RUNS_CACHE.get("ts")
+            if cached_payload and cached_ts and (now - cached_ts).total_seconds() < _LIVE_RUNS_TTL_SECONDS:
+                self._send_json(cached_payload, cache_seconds=_LIVE_RUNS_TTL_SECONDS)
+                return
             payload = build_payload(
                 agents_path=self.api_config["agents_path"],
                 results_path=self.api_config["results_path"],
@@ -164,16 +172,27 @@ class PredictArenaHandler(SimpleHTTPRequestHandler):
                 markets_path=self.api_config["markets_path"],
             )
             _hydrate_live_positions(payload, self.api_config["agents"])
-            self._send_json(payload)
+            _LIVE_RUNS_CACHE["payload"] = payload
+            _LIVE_RUNS_CACHE["ts"] = now
+            self._send_json(payload, cache_seconds=_LIVE_RUNS_TTL_SECONDS)
             return
         self._send_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
 
-    def _send_json(self, payload: object, *, status: HTTPStatus = HTTPStatus.OK) -> None:
+    def _send_json(
+        self,
+        payload: object,
+        *,
+        status: HTTPStatus = HTTPStatus.OK,
+        cache_seconds: int | None = None,
+    ) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        if cache_seconds is None:
+            self.send_header("Cache-Control", "no-store")
+        else:
+            self.send_header("Cache-Control", f"public, max-age={cache_seconds}")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)

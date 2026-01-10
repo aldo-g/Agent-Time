@@ -271,15 +271,46 @@ function renderDetail(agent) {
         </div>
       </div>
     </div>
-    <article class="detail-card">
-      <h3>Current Positions</h3>
-      ${renderPositions(agent.positions)}
-    </article>
-    <article class="detail-card accent">
-      <h3>Trade Log</h3>
-      ${renderTradesTable(agent.trades)}
-    </article>
+    <section class="detail-card tabbed-card">
+      <div class="tab-header">
+        <h3>Positions & Trades</h3>
+        <div class="tab-buttons" role="tablist" aria-label="Agent detail tabs">
+          <button class="tab-button active" role="tab" aria-selected="true" data-tab="positions">Current Positions</button>
+          <button class="tab-button" role="tab" aria-selected="false" data-tab="trades">Trade Log</button>
+        </div>
+      </div>
+      <div class="tab-panels">
+        <div class="tab-panel active" role="tabpanel" data-panel="positions">
+          ${renderPositions(agent.positions)}
+        </div>
+        <div class="tab-panel" role="tabpanel" data-panel="trades" hidden>
+          ${renderTradesTable(agent.trades)}
+        </div>
+      </div>
+    </section>
   `;
+  setupTabs(detailContainer);
+}
+
+function setupTabs(container) {
+  const tabButtons = container.querySelectorAll(".tab-button");
+  const tabPanels = container.querySelectorAll(".tab-panel");
+  if (!tabButtons.length || !tabPanels.length) return;
+  tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = button.dataset.tab;
+      tabButtons.forEach((btn) => {
+        const isActive = btn === button;
+        btn.classList.toggle("active", isActive);
+        btn.setAttribute("aria-selected", String(isActive));
+      });
+      tabPanels.forEach((panel) => {
+        const isActive = panel.dataset.panel === target;
+        panel.classList.toggle("active", isActive);
+        panel.hidden = !isActive;
+      });
+    });
+  });
 }
 
 function renderLoadingState() {
