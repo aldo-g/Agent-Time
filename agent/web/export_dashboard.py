@@ -274,6 +274,7 @@ def build_payload(
         provider_key = cfg.model_provider.lower()
         color, color_muted = PROVIDER_COLORS.get(provider_key, ("#e2e8f0", "rgba(226, 232, 240, 0.18)"))
         bankroll = float(latest_snapshot.get("bankroll") or 0.0)
+        positions_value = float(latest_snapshot.get("positions_value") or 0.0)
         daily_pnl = history[-1]["pnl"] if history else 0.0
         agent_entries.append(
             {
@@ -285,6 +286,7 @@ def build_payload(
                 "cash": float(latest_snapshot.get("cash_balance") or 0.0),
                 "bankroll": bankroll,
                 "totalAssets": bankroll,
+                "positionsValue": positions_value,
                 "dailyPnl": daily_pnl,
                 "openPositions": int(latest_snapshot.get("open_positions") or 0),
                 "winRate": 0.0,

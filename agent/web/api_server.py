@@ -8,20 +8,27 @@ import json
 import mimetypes
 import os
 import logging
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
+from urllib.parse import parse_qs, urlparse
 
 import utils.env_loader as env_loader  # noqa: F401
-from agent.manifold.portfolio import PortfolioSnapshot, fetch_portfolio_snapshot
+from agent.manifold.portfolio import (
+    PortfolioSnapshot,
+    fetch_portfolio_snapshot,
+    fetch_user_overview,
+)
 from agent.web.export_dashboard import build_payload
 
 logger = logging.getLogger(__name__)
 _LIVE_RUNS_CACHE: Dict[str, Any] = {"payload": None, "ts": None}
-_LIVE_RUNS_TTL_SECONDS = 30
+_LIVE_RUNS_TTL_SECONDS = 3600
+_MANIFOLD_KEY_LOCK = threading.Lock()
 
 @contextmanager
 def _temporary_env(var_name: str, value: str):
@@ -55,8 +62,21 @@ def _resolve_manifold_key(agent: dict) -> Optional[str]:
     return None
 
 
+def _resolve_expected_wallet(agent: dict) -> Optional[str]:
+    expected = agent.get("expected_wallet") or agent.get("wallet")
+    if expected:
+        return str(expected)
+    return None
+
+
 def _estimate_bankroll(snapshot: PortfolioSnapshot) -> tuple[float, float]:
     cash = snapshot.cash_balance or 0.0
+    positions_value = snapshot.investment_value
+    if positions_value is None and snapshot.unrealized_pnl is not None:
+        positions_value = float(snapshot.unrealized_pnl)
+    if positions_value is not None:
+        positions_value = float(positions_value)
+        return cash + positions_value, abs(positions_value)
     net_value = 0.0
     gross_exposure = 0.0
     for position in snapshot.positions:
@@ -70,6 +90,16 @@ def _estimate_bankroll(snapshot: PortfolioSnapshot) -> tuple[float, float]:
 
 def _snapshot_to_dict(snapshot: PortfolioSnapshot) -> Dict[str, Any]:
     bankroll, gross_exposure = _estimate_bankroll(snapshot)
+    positions_value = snapshot.investment_value
+    if positions_value is None and snapshot.unrealized_pnl is not None:
+        positions_value = float(snapshot.unrealized_pnl)
+    if positions_value is None:
+        positions_value = 0.0
+        for position in snapshot.positions:
+            value = position.estimated_value()
+            if value is None:
+                continue
+            positions_value += value
     positions = [
         {
             "market_id": position.market_id,
@@ -87,6 +117,9 @@ def _snapshot_to_dict(snapshot: PortfolioSnapshot) -> Dict[str, Any]:
         "cash_balance": snapshot.cash_balance,
         "realized_pnl": snapshot.realized_pnl,
         "unrealized_pnl": snapshot.unrealized_pnl,
+        "investment_value": snapshot.investment_value,
+        "cash_investment_value": snapshot.cash_investment_value,
+        "positions_value": positions_value,
         "bankroll": bankroll,
         "gross_exposure": gross_exposure,
         "open_positions": len(snapshot.positions),
@@ -97,9 +130,20 @@ def _snapshot_to_dict(snapshot: PortfolioSnapshot) -> Dict[str, Any]:
 def _hydrate_live_positions(
     payload: Dict[str, Any],
     agents: Iterable[dict],
+    *,
+    debug: bool = False,
 ) -> None:
+    # Ensure no shared MANIFOLD_API_KEY leaks between agents.
+    os.environ.pop("MANIFOLD_API_KEY", None)
     agent_map = {agent.get("name"): agent for agent in agents if agent.get("name")}
     for agent_entry in payload.get("agents", []):
+        # Always clear snapshot-derived portfolio fields; fill only from live Manifold data.
+        agent_entry["cash"] = 0.0
+        agent_entry["bankroll"] = 0.0
+        agent_entry["totalAssets"] = 0.0
+        agent_entry["positionsValue"] = 0.0
+        agent_entry["openPositions"] = 0
+        agent_entry["positions"] = []
         name = agent_entry.get("name")
         if not name:
             continue
@@ -122,21 +166,43 @@ def _hydrate_live_positions(
             }
             continue
         try:
-            with _temporary_env("MANIFOLD_API_KEY", key):
-                logger.info("Fetching live Manifold positions for %s.", name)
-                snapshot = fetch_portfolio_snapshot(None)
+            with _MANIFOLD_KEY_LOCK:
+                with _temporary_env("MANIFOLD_API_KEY", key):
+                    logger.info("Fetching live Manifold positions for %s.", name)
+                    snapshot = fetch_portfolio_snapshot(None)
+                    me_overview = fetch_user_overview() if debug else None
         except Exception as exc:
             logger.warning("Live Manifold fetch failed for %s: %s", name, exc)
             agent_entry["liveHydration"] = {"status": "error", "reason": str(exc)}
             continue
+        expected_wallet = _resolve_expected_wallet(config)
+        if expected_wallet:
+            live_wallet = str(snapshot.wallet or "")
+            if live_wallet.lower() != expected_wallet.lower():
+                logger.warning(
+                    "Wallet mismatch for %s: expected %s, got %s.",
+                    name,
+                    expected_wallet,
+                    live_wallet or "unknown",
+                )
+                agent_entry["liveHydration"] = {
+                    "status": "mismatch",
+                    "expected": expected_wallet,
+                    "found": live_wallet,
+                }
+                continue
         live = _snapshot_to_dict(snapshot)
         agent_entry["wallet"] = live.get("wallet", agent_entry.get("wallet", ""))
         agent_entry["cash"] = float(live.get("cash_balance") or 0.0)
         agent_entry["bankroll"] = float(live.get("bankroll") or 0.0)
         agent_entry["totalAssets"] = agent_entry["bankroll"]
+        agent_entry["positionsValue"] = float(live.get("positions_value") or 0.0)
         agent_entry["openPositions"] = int(live.get("open_positions") or 0)
         agent_entry["positions"] = live.get("positions") or []
-        agent_entry["liveHydration"] = {"status": "ok", "positions": len(agent_entry["positions"])}
+        hydration = {"status": "ok", "positions": len(agent_entry["positions"])}
+        if debug and me_overview is not None:
+            hydration["me"] = me_overview
+        agent_entry["liveHydration"] = hydration
     payload["lastUpdated"] = datetime.now(timezone.utc).isoformat()
 
 
@@ -155,14 +221,23 @@ class PredictArenaHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def _handle_api(self) -> None:
-        if self.path.startswith("/api/health"):
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
+        bypass_cache = query.get("refresh") == ["1"] or query.get("cache") == ["0"]
+        if path.startswith("/api/health"):
             self._send_json({"status": "ok"})
             return
-        if self.path.startswith("/api/live-runs"):
+        if path.startswith("/api/live-runs"):
             now = datetime.now(timezone.utc)
             cached_payload = _LIVE_RUNS_CACHE.get("payload")
             cached_ts = _LIVE_RUNS_CACHE.get("ts")
-            if cached_payload and cached_ts and (now - cached_ts).total_seconds() < _LIVE_RUNS_TTL_SECONDS:
+            if (
+                not bypass_cache
+                and cached_payload
+                and cached_ts
+                and (now - cached_ts).total_seconds() < _LIVE_RUNS_TTL_SECONDS
+            ):
                 self._send_json(cached_payload, cache_seconds=_LIVE_RUNS_TTL_SECONDS)
                 return
             payload = build_payload(
@@ -171,7 +246,7 @@ class PredictArenaHandler(SimpleHTTPRequestHandler):
                 trades_path=self.api_config["trades_path"],
                 markets_path=self.api_config["markets_path"],
             )
-            _hydrate_live_positions(payload, self.api_config["agents"])
+            _hydrate_live_positions(payload, self.api_config["agents"], debug=bypass_cache and query.get("debug") == ["1"])
             _LIVE_RUNS_CACHE["payload"] = payload
             _LIVE_RUNS_CACHE["ts"] = now
             self._send_json(payload, cache_seconds=_LIVE_RUNS_TTL_SECONDS)

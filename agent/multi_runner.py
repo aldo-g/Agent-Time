@@ -8,6 +8,7 @@ import contextlib
 import json
 import re
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -125,6 +126,12 @@ def _persist_result(record: Dict[str, Any], path: str) -> None:
 
 def _estimate_bankroll(snapshot: PortfolioSnapshot) -> tuple[float, float]:
     cash = snapshot.cash_balance or 0.0
+    positions_value = snapshot.investment_value
+    if positions_value is None and snapshot.unrealized_pnl is not None:
+        positions_value = float(snapshot.unrealized_pnl)
+    if positions_value is not None:
+        positions_value = float(positions_value)
+        return cash + positions_value, abs(positions_value)
     net_value = 0.0
     gross_exposure = 0.0
     for position in snapshot.positions:
@@ -138,6 +145,16 @@ def _estimate_bankroll(snapshot: PortfolioSnapshot) -> tuple[float, float]:
 
 def _snapshot_to_dict(snapshot: PortfolioSnapshot) -> Dict[str, Any]:
     bankroll, gross_exposure = _estimate_bankroll(snapshot)
+    positions_value = snapshot.investment_value
+    if positions_value is None and snapshot.unrealized_pnl is not None:
+        positions_value = float(snapshot.unrealized_pnl)
+    if positions_value is None:
+        positions_value = 0.0
+        for position in snapshot.positions:
+            value = position.estimated_value()
+            if value is None:
+                continue
+            positions_value += value
     positions = [
         {
             "market_id": position.market_id,
@@ -155,6 +172,9 @@ def _snapshot_to_dict(snapshot: PortfolioSnapshot) -> Dict[str, Any]:
         "cash_balance": snapshot.cash_balance,
         "realized_pnl": snapshot.realized_pnl,
         "unrealized_pnl": snapshot.unrealized_pnl,
+        "investment_value": snapshot.investment_value,
+        "cash_investment_value": snapshot.cash_investment_value,
+        "positions_value": positions_value,
         "bankroll": bankroll,
         "gross_exposure": gross_exposure,
         "open_positions": len(snapshot.positions),
@@ -247,6 +267,8 @@ def run_multi_agent(
     market_limit: int,
     market_cache_path: Path | None = None,
 ) -> None:
+    # Ensure a shared MANIFOLD_API_KEY cannot leak across agents.
+    os.environ.pop("MANIFOLD_API_KEY", None)
     cache_path = market_cache_path or DEFAULT_MARKET_CACHE_PATH
     market_events = _prepare_market_cache(market_limit, cache_path)
     session_records: List[Dict[str, Any]] = []
@@ -280,6 +302,12 @@ def run_multi_agent(
                 try:
                     snapshot = fetch_portfolio_snapshot(None)
                     portfolio_snapshot = _snapshot_to_dict(snapshot)
+                    if tool_calls and any(
+                        call in tool_calls for call in ("manifold_place_bet", "manifold_sell_position")
+                    ):
+                        time.sleep(2)
+                        snapshot = fetch_portfolio_snapshot(None)
+                        portfolio_snapshot = _snapshot_to_dict(snapshot)
                 except Exception as exc:  # noqa: BLE001
                     portfolio_error = str(exc)
             except Exception as exc:  # noqa: BLE001

@@ -20,6 +20,7 @@ MAX_API_RETRIES = int(os.environ.get("MANIFOLD_API_RETRIES", "2"))
 RETRY_BACKOFF_SECONDS = float(os.environ.get("MANIFOLD_API_RETRY_BACKOFF", "0.6"))
 TRANSIENT_HTTP_CODES = {429, 502, 503, 504}
 API_TIMEOUT_SECONDS = float(os.environ.get("MANIFOLD_API_TIMEOUT", "20"))
+MARKET_OPEN_BUFFER_SECONDS = float(os.environ.get("MANIFOLD_MARKET_OPEN_BUFFER_SECONDS", "0"))
 
 
 def _safe_float(value: object, *, default: Optional[float] = None) -> Optional[float]:
@@ -58,6 +59,8 @@ class PortfolioSnapshot:
     realized_pnl: Optional[float] = None
     unrealized_pnl: Optional[float] = None
     cash_balance: Optional[float] = None
+    investment_value: Optional[float] = None
+    cash_investment_value: Optional[float] = None
 
 
 def fetch_portfolio_snapshot(_: str | None = None) -> PortfolioSnapshot:
@@ -67,16 +70,64 @@ def fetch_portfolio_snapshot(_: str | None = None) -> PortfolioSnapshot:
     if not user_id:
         raise RuntimeError("Unable to determine Manifold user id from /me response.")
     username = user.get("username") or user.get("name") or user_id
+    metrics = None
+    try:
+        metrics = _fetch_portfolio_metrics(user_id)
+    except Exception:
+        metrics = None
+    investment_value = _safe_float(metrics.get("investmentValue")) if metrics else None
+    if investment_value is None:
+        investment_value = _safe_float(
+            user.get("totalInvestment")
+            or user.get("totalInvested")
+            or user.get("invested")
+            or user.get("investmentValue")
+        )
+    cash_balance = _safe_float(user.get("cashBalance") or user.get("balance"))
+    if metrics:
+        metric_cash = _safe_float(metrics.get("cashBalance") or metrics.get("balance"))
+        if metric_cash is not None:
+            cash_balance = metric_cash
+    realized_pnl = _safe_float(metrics.get("profit")) if metrics else None
+    if realized_pnl is None:
+        realized_pnl = _safe_float(user.get("profitCached"))
+    cash_investment_value = _safe_float(metrics.get("cashInvestmentValue")) if metrics else None
     snapshot = PortfolioSnapshot(
         wallet=str(username),
-        cash_balance=_safe_float(user.get("balance")),
-        realized_pnl=_safe_float(user.get("profitCached")),
-        unrealized_pnl=_safe_float(user.get("investmentValue")),
+        cash_balance=cash_balance,
+        realized_pnl=realized_pnl,
+        unrealized_pnl=investment_value,
+        investment_value=investment_value,
+        cash_investment_value=cash_investment_value,
     )
     bets = _fetch_user_bets(user_id, limit=DEFAULT_BETS_LIMIT)
     market_map = _fetch_markets_for_bets(bets)
     snapshot.positions.extend(_build_positions(bets, market_map))
     return snapshot
+
+
+def fetch_user_overview() -> dict:
+    """Fetch raw /me fields for debugging/account parity checks."""
+    user = _fetch_authenticated_user()
+    user_id = user.get("id") or user.get("_id")
+    metrics: Optional[dict] = None
+    if user_id:
+        try:
+            metrics = _fetch_portfolio_metrics(str(user_id))
+        except Exception:
+            metrics = None
+    return {
+        "id": user_id,
+        "username": user.get("username") or user.get("name"),
+        "balance": user.get("balance"),
+        "investmentValue": user.get("investmentValue"),
+        "totalInvestment": user.get("totalInvestment"),
+        "totalInvested": user.get("totalInvested"),
+        "invested": user.get("invested"),
+        "profitCached": user.get("profitCached"),
+        "livePortfolio": metrics,
+        "livePortfolioCash": metrics.get("cashBalance") if isinstance(metrics, dict) else None,
+    }
 
 
 def _auth_headers() -> Dict[str, str]:
@@ -152,6 +203,13 @@ def _fetch_authenticated_user() -> dict:
     raise RuntimeError("Unexpected response from Manifold /me endpoint.")
 
 
+def _fetch_portfolio_metrics(user_id: str) -> Optional[dict]:
+    payload = _api_request("/get-user-portfolio", params={"userId": user_id})
+    if isinstance(payload, dict):
+        return payload
+    return None
+
+
 def _fetch_user_bets(user_id: str, *, limit: int) -> List[dict]:
     normalized_limit = min(max(limit, 1), MAX_API_LIMIT)
     params = {
@@ -203,7 +261,7 @@ def _build_positions(bets: Iterable[dict], markets: Dict[str, dict]) -> List[Por
         if not isinstance(contract_id, str):
             continue
         market = markets.get(contract_id)
-        if not market or market.get("isResolved"):
+        if not market or not _is_market_open(market):
             continue
         outcome_name = str(bet.get("outcome") or bet.get("answer") or "YES")
         answer_id = bet.get("answerId")
@@ -261,6 +319,30 @@ def _build_positions(bets: Iterable[dict], markets: Dict[str, dict]) -> List[Por
         )
     positions.sort(key=lambda pos: abs(pos.estimated_value() or 0.0), reverse=True)
     return positions
+
+
+def _is_market_open(market: dict) -> bool:
+    if market.get("isResolved"):
+        return False
+    if market.get("isClosed"):
+        return False
+    close_time = market.get("closeTime")
+    if close_time is None:
+        return True
+    close_seconds = _normalize_timestamp_seconds(close_time)
+    if close_seconds is None:
+        return True
+    return close_seconds > (time.time() - MARKET_OPEN_BUFFER_SECONDS)
+
+
+def _normalize_timestamp_seconds(value: object) -> Optional[float]:
+    timestamp = _safe_float(value)
+    if timestamp is None:
+        return None
+    # Manifold timestamps are usually ms, but guard for seconds.
+    if timestamp > 10_000_000_000:
+        return timestamp / 1000.0
+    return timestamp
 
 
 def _describe_outcome(market: dict, outcome: str, answer_id: object) -> str:

@@ -7,8 +7,10 @@ const detailContainer = document.getElementById("agent-details");
 let agents = [];
 let activeSlug = null;
 
-const currency = (value) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+const currency = (value) => {
+  const formatted = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+  return `<img class="mana-icon" src="assets/Mana-Logo.svg" alt="Mana" />${formatted}`;
+};
 
 const percent = (value) => `${(value * 100).toFixed(0)}%`;
 const formatShares = (value) =>
@@ -26,23 +28,28 @@ const formatDelta = (value) => {
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
   return `${sign}${(Math.abs(value) * 100).toFixed(1)}pp`;
 };
+const formatPercent = (value) => {
+  if (value == null || Number.isNaN(value)) return "n/a";
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${(Math.abs(value) * 100).toFixed(1)}%`;
+};
+
+function totalGainPercent(agent) {
+  const history = Array.isArray(agent.history) ? agent.history : [];
+  const totalChange = history.reduce((sum, entry) => {
+    const pnl = Number(entry.pnl);
+    return Number.isFinite(pnl) ? sum + pnl : sum;
+  }, 0);
+  const bankroll = Number(agent.bankroll);
+  if (!Number.isFinite(bankroll)) return null;
+  const initial = bankroll - totalChange;
+  if (!Number.isFinite(initial) || initial <= 0) return null;
+  return totalChange / initial;
+}
 
 function renderSummary(summary, lastUpdated) {
-  const entries = [
-    { label: "Active Markets", value: summary.activeMarkets },
-    { label: "Mana In Play", value: currency(summary.manaInPlay) },
-    { label: "Trades Today", value: summary.totalTradesToday },
-    { label: "Last Update", value: new Date(lastUpdated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }
-  ];
-  summaryContainer.innerHTML = entries
-    .map(
-      ({ label, value }) => `
-      <article class="metric-card">
-        <p class="metric-label">${label}</p>
-        <p class="metric-value">${value}</p>
-      </article>`
-    )
-    .join("");
+  summaryContainer.innerHTML = "";
+  summaryContainer.style.display = "none";
 }
 
 function renderAgentCard(agent) {
@@ -52,14 +59,18 @@ function renderAgentCard(agent) {
     provider,
     model,
     cash,
-    dailyPnl,
+    positionsValue,
     winRate,
     openPositions,
     totalAssets,
     color,
     colorMuted
   } = agent;
-  const pnlSign = dailyPnl >= 0 ? "+" : "";
+  const displayTotal = Math.round(Number(totalAssets || 0));
+  const displayCash = Math.round(Number(cash || 0));
+  const displayPositions =
+    positionsValue != null ? Math.round(Number(positionsValue || 0)) : displayTotal - displayCash;
+  const gainPct = totalGainPercent(agent);
   const selected = slug === activeSlug ? "active" : "";
   const accentStyle = `style="--agent-accent-strong: ${color || "var(--accent)"}; --agent-accent-soft: ${
     colorMuted || "var(--accent-muted)"
@@ -73,9 +84,10 @@ function renderAgentCard(agent) {
         </div>
         <small class="muted">${model}</small>
       </header>
-      <div class="stat-row"><span>Cash</span><strong>${currency(cash)}</strong></div>
-      <div class="stat-row"><span>Total Assets</span><strong>${currency(totalAssets || 0)}</strong></div>
-      <div class="stat-row"><span>Daily PnL</span><strong>${pnlSign}${currency(Math.abs(dailyPnl))}</strong></div>
+      <div class="stat-row"><span>Total Value</span><strong>${currency(displayTotal)}</strong></div>
+      <div class="stat-row"><span>Invested</span><strong>${currency(displayPositions)}</strong></div>
+      <div class="stat-row"><span>Cash</span><strong>${currency(displayCash)}</strong></div>
+      <div class="stat-row"><span>Total % Gain</span><strong>${formatPercent(gainPct)}</strong></div>
       <div class="stat-row"><span>Win Rate</span><strong>${percent(winRate)}</strong></div>
       <div class="stat-row"><span>Open Positions</span><strong>${openPositions}</strong></div>
     </article>
@@ -331,9 +343,10 @@ function selectAgent(slug) {
 
 const params = new URLSearchParams(window.location.search);
 const apiOverride = params.get("api");
-const apiEndpoint = apiOverride || "/api/live-runs";
+const apiEndpoint = apiOverride || "/api/live-runs?refresh=1";
 const fallbackEndpoint = "data/live_runs.json";
-const refreshMs = Number(params.get("refresh") || 30000);
+const refreshMs = Number(params.get("refresh") || 3600000);
+let isRefreshing = false;
 
 async function loadPayload() {
   const endpoints = [apiEndpoint, fallbackEndpoint];
@@ -353,6 +366,10 @@ async function loadPayload() {
 }
 
 async function bootstrap() {
+  if (isRefreshing) {
+    return;
+  }
+  isRefreshing = true;
   try {
     detailContainer.innerHTML = renderLoadingState();
     const payload = await loadPayload();
@@ -364,8 +381,11 @@ async function bootstrap() {
     }
   } catch (error) {
     detailContainer.innerHTML = `<p class="empty-state">Unable to load data: ${error}</p>`;
+  } finally {
+    isRefreshing = false;
   }
 }
 
 bootstrap();
-setInterval(bootstrap, refreshMs);
+// Only fetch on load; users can refresh the page manually when needed.
+// refreshMs remains available via ?refresh= for future use if re-enabled.

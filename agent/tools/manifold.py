@@ -125,8 +125,11 @@ def _summarize_portfolio(snapshot: PortfolioSnapshot) -> str:
         ledger_bits.append(f"cash ${snapshot.cash_balance:,.2f}")
     if snapshot.realized_pnl is not None:
         ledger_bits.append(f"realized PnL ${snapshot.realized_pnl:,.2f}")
-    if snapshot.unrealized_pnl is not None:
-        ledger_bits.append(f"unrealized PnL ${snapshot.unrealized_pnl:,.2f}")
+    invested = snapshot.investment_value
+    if invested is None and snapshot.unrealized_pnl is not None:
+        invested = snapshot.unrealized_pnl
+    if invested is not None:
+        ledger_bits.append(f"invested ${invested:,.2f}")
     if ledger_bits:
         lines.append("Ledger: " + ", ".join(ledger_bits))
     else:
@@ -448,6 +451,12 @@ def _run_limit_order_preview(
 
 def _estimate_bankroll(snapshot: PortfolioSnapshot) -> Tuple[float, float]:
     cash = snapshot.cash_balance or 0.0
+    positions_value = snapshot.investment_value
+    if positions_value is None and snapshot.unrealized_pnl is not None:
+        positions_value = snapshot.unrealized_pnl
+    if positions_value is not None:
+        positions_value = float(positions_value)
+        return cash + positions_value, abs(positions_value)
     gross_exposure = 0.0
     net_value = 0.0
     for position in snapshot.positions:
