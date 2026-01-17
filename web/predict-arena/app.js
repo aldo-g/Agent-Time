@@ -122,7 +122,7 @@ function renderTradesTable(trades = []) {
         <thead>
           <tr>
             <th>When</th>
-            <th>Market</th>
+            <th>Market / Rationale</th>
             <th>Action</th>
             <th>Stake</th>
             <th>Prob Δ</th>
@@ -132,11 +132,33 @@ function renderTradesTable(trades = []) {
         <tbody>
           ${trades
             .map((trade) => {
-              const delta = trade.probAfter && trade.probBefore ? trade.probAfter - trade.probBefore : 0;
+              const probAfter = Number(trade.probAfter);
+              const probBefore = Number(trade.probBefore);
+              const delta = Number.isFinite(probAfter) && Number.isFinite(probBefore) ? probAfter - probBefore : 0;
+              const tools = Array.isArray(trade.tools) ? trade.tools.filter(Boolean) : [];
+              const sources = Array.isArray(trade.sources) ? trade.sources.filter(Boolean) : [];
+              const toolList = tools.length
+                ? `<div class="tool-list">${tools.map((tool) => `<span class="pill tool-pill">${tool}</span>`).join("")}</div>`
+                : "";
+              const sourceList = sources.length
+                ? `<div class="source-list">${sources
+                    .map((url) => {
+                      const label = url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+                      return `<a class="pill source-pill" href="${url}" target="_blank" rel="noreferrer">${label}</a>`;
+                    })
+                    .join("")}</div>`
+                : "";
+              const reason = trade.reason ? String(trade.reason) : "";
+              const reasonBlock = reason ? `<p class="trade-reason">${reason}</p>` : "";
               return `
                 <tr>
                   <td>${new Date(trade.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
-                  <td><a href="${trade.marketUrl}" target="_blank" rel="noreferrer">${trade.market}</a></td>
+                  <td>
+                    <a href="${trade.marketUrl}" target="_blank" rel="noreferrer">${trade.market}</a>
+                    ${reasonBlock}
+                    ${sourceList}
+                    ${toolList}
+                  </td>
                   <td>${trade.action} ${trade.outcome}</td>
                   <td>${currency(trade.amount)}</td>
                   <td>${(delta * 100).toFixed(1)}pp</td>

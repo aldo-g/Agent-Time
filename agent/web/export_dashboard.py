@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -77,6 +78,90 @@ def _parse_iso(timestamp: Optional[str]) -> Optional[datetime]:
         return datetime.fromisoformat(normalized)
     except ValueError:
         return None
+
+
+def _parse_trades_from_output(output: Any) -> List[Dict[str, str]]:
+    """Extract trade + reason lines from agent output prose."""
+    if not isinstance(output, str):
+        return []
+    trades: List[Dict[str, str]] = []
+    last_trade: Dict[str, str] | None = None
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        clean_line = line.strip("*_- ")
+        match_trade = re.search(r"trade\s*-\s*(.+)", clean_line, flags=re.IGNORECASE)
+        if match_trade:
+            last_trade = {"trade": match_trade.group(1).strip("* "), "reason": ""}
+            trades.append(last_trade)
+            continue
+        match_reason = re.search(r"reason\s*-\s*(.+)", clean_line, flags=re.IGNORECASE)
+        if match_reason and last_trade is not None:
+            last_trade["reason"] = match_reason.group(1).strip()
+    return [
+        {"trade": entry["trade"], "reason": entry.get("reason", "")}
+        for entry in trades
+        if entry.get("trade")
+    ]
+
+
+def _build_run_contexts(runs: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    contexts: List[Dict[str, Any]] = []
+    for record in runs:
+        dt = _parse_iso(record.get("timestamp"))
+        if dt is None:
+            continue
+        rationales = _parse_trades_from_output(record.get("output"))
+        tools = [str(entry) for entry in (record.get("tool_calls") or []) if entry]
+        contexts.append({"timestamp": dt, "rationales": rationales, "tools": tools})
+    contexts.sort(key=lambda item: item["timestamp"])
+    return contexts
+
+
+def _match_run_context(
+    trade_dt: Optional[datetime],
+    contexts: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not contexts:
+        return None
+    if trade_dt is not None:
+        candidates = [ctx for ctx in contexts if ctx["timestamp"] <= trade_dt]
+        if candidates:
+            return candidates[-1]
+    return contexts[-1]
+
+
+def _find_trade_reason(trade: Dict[str, Any], rationales: List[Dict[str, str]]) -> str:
+    if not rationales:
+        return ""
+    question = str(trade.get("market") or "").lower()
+    outcome = str(trade.get("outcome") or "").lower()
+    market_id = str(trade.get("market_id") or "").lower()
+    for entry in rationales:
+        text = f"{entry.get('trade', '')} {entry.get('reason', '')}".lower()
+        if question and question in text:
+            return entry.get("reason") or entry.get("trade") or ""
+        if market_id and market_id in text:
+            return entry.get("reason") or entry.get("trade") or ""
+        if outcome and outcome in text and question and question[:24] in text:
+            return entry.get("reason") or entry.get("trade") or ""
+    return rationales[0].get("reason") or rationales[0].get("trade") or ""
+
+
+def _extract_links(text: str) -> List[str]:
+    if not text:
+        return []
+    links: List[str] = []
+    for match in re.finditer(r"https?://[^\s)]+", text):
+        url = match.group(0).rstrip(".,);]")
+        links.append(url)
+    seen = set()
+    deduped = []
+    for url in links:
+        if url in seen:
+            continue
+        seen.add(url)
+        deduped.append(url)
+    return deduped
 
 
 def _slugify(value: str) -> str:
@@ -154,13 +239,23 @@ def _build_history(
     return history
 
 
-def _build_trades(trades: Iterable[Dict[str, Any]], agent: str) -> List[Dict[str, Any]]:
+def _build_trades(
+    trades: Iterable[Dict[str, Any]],
+    agent: str,
+    runs: Iterable[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
     rendered: List[Dict[str, Any]] = []
+    contexts = _build_run_contexts(runs)
     for entry in trades:
         timestamp = entry.get("timestamp")
         market_id = entry.get("market_id") or ""
         bet_id = entry.get("bet_id")
         trade_id = bet_id or f"{agent}-{timestamp}-{market_id}"
+        trade_dt = _parse_iso(timestamp)
+        context = _match_run_context(trade_dt, contexts)
+        tools = context["tools"] if context else []
+        reason = _find_trade_reason(entry, context["rationales"]) if context else ""
+        sources = _extract_links(reason)
         rendered.append(
             {
                 "id": trade_id,
@@ -173,6 +268,9 @@ def _build_trades(trades: Iterable[Dict[str, Any]], agent: str) -> List[Dict[str
                 "probBefore": entry.get("prob_before"),
                 "probAfter": entry.get("prob_after"),
                 "status": entry.get("status") or "OPEN",
+                "reason": reason,
+                "tools": tools,
+                "sources": sources,
             }
         )
     rendered.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
@@ -293,7 +391,7 @@ def build_payload(
                 "color": color,
                 "colorMuted": color_muted,
                 "notes": "Auto-synced from daily Agent-Time runs.",
-                "trades": _build_trades(trade_entries, cfg.name),
+                "trades": _build_trades(trade_entries, cfg.name, agent_runs),
                 "history": history,
                 "tradesToday": trades_today,
                 "positions": latest_snapshot.get("positions") or [],

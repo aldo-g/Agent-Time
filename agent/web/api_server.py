@@ -8,8 +8,8 @@ import json
 import mimetypes
 import os
 import logging
-import threading
-from contextlib import contextmanager
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -28,19 +28,21 @@ from agent.web.export_dashboard import build_payload
 logger = logging.getLogger(__name__)
 _LIVE_RUNS_CACHE: Dict[str, Any] = {"payload": None, "ts": None}
 _LIVE_RUNS_TTL_SECONDS = 3600
-_MANIFOLD_KEY_LOCK = threading.Lock()
 
-@contextmanager
-def _temporary_env(var_name: str, value: str):
-    previous = os.environ.get(var_name)
-    os.environ[var_name] = value
-    try:
-        yield
-    finally:
-        if previous is None:
-            os.environ.pop(var_name, None)
-        else:
-            os.environ[var_name] = previous
+def _mask_key(key: str) -> str:
+    return key if len(key) <= 8 else f"{key[:4]}...{key[-4:]}"
+
+
+def _fetch_live_snapshot(name: str, key: str, source_label: str, debug: bool) -> tuple[PortfolioSnapshot, Optional[dict]]:
+    logger.info(
+        "Fetching live Manifold positions for %s using %s=%s.",
+        name,
+        source_label,
+        _mask_key(key),
+    )
+    snapshot = fetch_portfolio_snapshot(api_key=key)
+    me_overview = fetch_user_overview(api_key=key) if debug else None
+    return snapshot, me_overview
 
 
 def _load_agents(path: Path) -> list[dict]:
@@ -127,23 +129,48 @@ def _snapshot_to_dict(snapshot: PortfolioSnapshot) -> Dict[str, Any]:
     }
 
 
+def _retry_on_wallet_mismatch(
+    *,
+    name: str,
+    key: str,
+    source_label: str,
+    expected_wallet: str,
+    debug: bool,
+    max_attempts: int = 3,
+    delay_seconds: float = 0.6,
+) -> tuple[PortfolioSnapshot, Optional[dict], str]:
+    """Retry fetching when Manifold briefly returns a stale wallet mapping."""
+
+    snapshot: PortfolioSnapshot
+    me_overview: Optional[dict]
+    live_wallet = ""
+    for attempt in range(max_attempts):
+        snapshot, me_overview = _fetch_live_snapshot(name, key, source_label, debug)
+        live_wallet = str(snapshot.wallet or "")
+        if live_wallet.lower() == expected_wallet.lower():
+            break
+        if attempt < max_attempts - 1:
+            logger.warning(
+                "Wallet mismatch for %s: expected %s, got %s. Retrying (%d/%d)...",
+                name,
+                expected_wallet,
+                live_wallet or "unknown",
+                attempt + 1,
+                max_attempts,
+            )
+            time.sleep(delay_seconds)
+    return snapshot, me_overview, live_wallet
+
+
 def _hydrate_live_positions(
     payload: Dict[str, Any],
     agents: Iterable[dict],
     *,
     debug: bool = False,
 ) -> None:
-    # Ensure no shared MANIFOLD_API_KEY leaks between agents.
-    os.environ.pop("MANIFOLD_API_KEY", None)
     agent_map = {agent.get("name"): agent for agent in agents if agent.get("name")}
+    work_items: list[tuple[dict, dict, str, str]] = []
     for agent_entry in payload.get("agents", []):
-        # Always clear snapshot-derived portfolio fields; fill only from live Manifold data.
-        agent_entry["cash"] = 0.0
-        agent_entry["bankroll"] = 0.0
-        agent_entry["totalAssets"] = 0.0
-        agent_entry["positionsValue"] = 0.0
-        agent_entry["openPositions"] = 0
-        agent_entry["positions"] = []
         name = agent_entry.get("name")
         if not name:
             continue
@@ -165,44 +192,64 @@ def _hydrate_live_positions(
                 "env": config.get("manifold_key_env") or "manifold_key",
             }
             continue
-        try:
-            with _MANIFOLD_KEY_LOCK:
-                with _temporary_env("MANIFOLD_API_KEY", key):
-                    logger.info("Fetching live Manifold positions for %s.", name)
-                    snapshot = fetch_portfolio_snapshot(None)
-                    me_overview = fetch_user_overview() if debug else None
-        except Exception as exc:
-            logger.warning("Live Manifold fetch failed for %s: %s", name, exc)
-            agent_entry["liveHydration"] = {"status": "error", "reason": str(exc)}
-            continue
-        expected_wallet = _resolve_expected_wallet(config)
-        if expected_wallet:
-            live_wallet = str(snapshot.wallet or "")
-            if live_wallet.lower() != expected_wallet.lower():
-                logger.warning(
-                    "Wallet mismatch for %s: expected %s, got %s.",
-                    name,
-                    expected_wallet,
-                    live_wallet or "unknown",
-                )
-                agent_entry["liveHydration"] = {
-                    "status": "mismatch",
-                    "expected": expected_wallet,
-                    "found": live_wallet,
-                }
+        source_label = config.get("manifold_key_env") or "manifold_key"
+        work_items.append((agent_entry, config, key, source_label))
+
+    if not work_items:
+        payload["lastUpdated"] = datetime.now(timezone.utc).isoformat()
+        return
+
+    max_workers = min(4, len(work_items))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_item = {
+            executor.submit(_fetch_live_snapshot, config.get("name") or "", key, source_label, debug): (agent_entry, config)
+            for agent_entry, config, key, source_label in work_items
+        }
+        for future in as_completed(future_to_item):
+            agent_entry, config = future_to_item[future]
+            name = config.get("name") or agent_entry.get("name") or "unknown"
+            try:
+                snapshot, me_overview = future.result()
+            except Exception as exc:
+                logger.warning("Live Manifold fetch failed for %s: %s", name, exc)
+                agent_entry["liveHydration"] = {"status": "error", "reason": str(exc)}
                 continue
-        live = _snapshot_to_dict(snapshot)
-        agent_entry["wallet"] = live.get("wallet", agent_entry.get("wallet", ""))
-        agent_entry["cash"] = float(live.get("cash_balance") or 0.0)
-        agent_entry["bankroll"] = float(live.get("bankroll") or 0.0)
-        agent_entry["totalAssets"] = agent_entry["bankroll"]
-        agent_entry["positionsValue"] = float(live.get("positions_value") or 0.0)
-        agent_entry["openPositions"] = int(live.get("open_positions") or 0)
-        agent_entry["positions"] = live.get("positions") or []
-        hydration = {"status": "ok", "positions": len(agent_entry["positions"])}
-        if debug and me_overview is not None:
-            hydration["me"] = me_overview
-        agent_entry["liveHydration"] = hydration
+            expected_wallet = _resolve_expected_wallet(config)
+            if expected_wallet:
+                live_wallet = str(snapshot.wallet or "")
+                if live_wallet.lower() != expected_wallet.lower():
+                    snapshot, me_overview, live_wallet = _retry_on_wallet_mismatch(
+                        name=name,
+                        key=_resolve_manifold_key(config) or "",
+                        source_label=config.get("manifold_key_env") or "manifold_key",
+                        expected_wallet=expected_wallet,
+                        debug=debug,
+                    )
+                if live_wallet.lower() != expected_wallet.lower():
+                    logger.warning(
+                        "Wallet mismatch for %s: expected %s, got %s.",
+                        name,
+                        expected_wallet,
+                        live_wallet or "unknown",
+                    )
+                    agent_entry["liveHydration"] = {
+                        "status": "mismatch",
+                        "expected": expected_wallet,
+                        "found": live_wallet,
+                    }
+                    continue
+            live = _snapshot_to_dict(snapshot)
+            agent_entry["wallet"] = live.get("wallet", agent_entry.get("wallet", ""))
+            agent_entry["cash"] = float(live.get("cash_balance") or 0.0)
+            agent_entry["bankroll"] = float(live.get("bankroll") or 0.0)
+            agent_entry["totalAssets"] = agent_entry["bankroll"]
+            agent_entry["positionsValue"] = float(live.get("positions_value") or 0.0)
+            agent_entry["openPositions"] = int(live.get("open_positions") or 0)
+            agent_entry["positions"] = live.get("positions") or []
+            hydration = {"status": "ok", "positions": len(agent_entry["positions"])}
+            if debug and me_overview is not None:
+                hydration["me"] = me_overview
+            agent_entry["liveHydration"] = hydration
     payload["lastUpdated"] = datetime.now(timezone.utc).isoformat()
 
 

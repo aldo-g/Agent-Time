@@ -473,6 +473,42 @@ main {
   text-decoration: none;
 }
 
+.trade-reason {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.tool-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}
+
+.source-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.pill.source-pill {
+  background: #fff;
+  color: var(--accent);
+  border: 1px solid var(--panel-border);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+
+.pill.tool-pill {
+  background: var(--agent-accent-soft, rgba(31, 26, 20, 0.08));
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  letter-spacing: 0.08em;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;

@@ -63,16 +63,16 @@ class PortfolioSnapshot:
     cash_investment_value: Optional[float] = None
 
 
-def fetch_portfolio_snapshot(_: str | None = None) -> PortfolioSnapshot:
+def fetch_portfolio_snapshot(_: str | None = None, *, api_key: str | None = None) -> PortfolioSnapshot:
     """Fetch the authenticated Manifold user's portfolio."""
-    user = _fetch_authenticated_user()
+    user = _fetch_authenticated_user(api_key=api_key)
     user_id = str(user.get("id") or user.get("_id") or "")
     if not user_id:
         raise RuntimeError("Unable to determine Manifold user id from /me response.")
     username = user.get("username") or user.get("name") or user_id
     metrics = None
     try:
-        metrics = _fetch_portfolio_metrics(user_id)
+        metrics = _fetch_portfolio_metrics(user_id, api_key=api_key)
     except Exception:
         metrics = None
     investment_value = _safe_float(metrics.get("investmentValue")) if metrics else None
@@ -100,20 +100,20 @@ def fetch_portfolio_snapshot(_: str | None = None) -> PortfolioSnapshot:
         investment_value=investment_value,
         cash_investment_value=cash_investment_value,
     )
-    bets = _fetch_user_bets(user_id, limit=DEFAULT_BETS_LIMIT)
-    market_map = _fetch_markets_for_bets(bets)
+    bets = _fetch_user_bets(user_id, limit=DEFAULT_BETS_LIMIT, api_key=api_key)
+    market_map = _fetch_markets_for_bets(bets, api_key=api_key)
     snapshot.positions.extend(_build_positions(bets, market_map))
     return snapshot
 
 
-def fetch_user_overview() -> dict:
+def fetch_user_overview(*, api_key: str | None = None) -> dict:
     """Fetch raw /me fields for debugging/account parity checks."""
-    user = _fetch_authenticated_user()
+    user = _fetch_authenticated_user(api_key=api_key)
     user_id = user.get("id") or user.get("_id")
     metrics: Optional[dict] = None
     if user_id:
         try:
-            metrics = _fetch_portfolio_metrics(str(user_id))
+            metrics = _fetch_portfolio_metrics(str(user_id), api_key=api_key)
         except Exception:
             metrics = None
     return {
@@ -130,12 +130,12 @@ def fetch_user_overview() -> dict:
     }
 
 
-def _auth_headers() -> Dict[str, str]:
-    api_key = os.environ.get("MANIFOLD_API_KEY")
-    if not api_key:
+def _auth_headers(api_key: str | None = None) -> Dict[str, str]:
+    key = api_key or os.environ.get("MANIFOLD_API_KEY")
+    if not key:
         raise RuntimeError("Set MANIFOLD_API_KEY before inspecting the portfolio or trading.")
     return {
-        "Authorization": f"Key {api_key}",
+        "Authorization": f"Key {key}",
         "User-Agent": USER_AGENT,
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -148,9 +148,10 @@ def _api_request(
     params: dict | None = None,
     method: str = "GET",
     body: object | None = None,
+    api_key: str | None = None,
 ) -> object:
     url = _build_url(path, params)
-    headers = _auth_headers()
+    headers = _auth_headers(api_key)
     data_bytes = None
     if body is not None:
         if isinstance(body, (bytes, bytearray)):
@@ -193,8 +194,8 @@ def _build_url(path: str, params: dict | None) -> str:
     return url
 
 
-def _fetch_authenticated_user() -> dict:
-    payload = _api_request("/me")
+def _fetch_authenticated_user(api_key: str | None = None) -> dict:
+    payload = _api_request("/me", api_key=api_key)
     if isinstance(payload, dict):
         user = payload.get("user")
         if isinstance(user, dict):
@@ -203,20 +204,20 @@ def _fetch_authenticated_user() -> dict:
     raise RuntimeError("Unexpected response from Manifold /me endpoint.")
 
 
-def _fetch_portfolio_metrics(user_id: str) -> Optional[dict]:
-    payload = _api_request("/get-user-portfolio", params={"userId": user_id})
+def _fetch_portfolio_metrics(user_id: str, api_key: str | None = None) -> Optional[dict]:
+    payload = _api_request("/get-user-portfolio", params={"userId": user_id}, api_key=api_key)
     if isinstance(payload, dict):
         return payload
     return None
 
 
-def _fetch_user_bets(user_id: str, *, limit: int) -> List[dict]:
+def _fetch_user_bets(user_id: str, *, limit: int, api_key: str | None = None) -> List[dict]:
     normalized_limit = min(max(limit, 1), MAX_API_LIMIT)
     params = {
         "userId": user_id,
         "limit": normalized_limit,
     }
-    payload = _api_request("/bets", params=params)
+    payload = _api_request("/bets", params=params, api_key=api_key)
     if isinstance(payload, list):
         return [bet for bet in payload if isinstance(bet, dict)]
     if isinstance(payload, dict):
@@ -225,7 +226,7 @@ def _fetch_user_bets(user_id: str, *, limit: int) -> List[dict]:
     return []
 
 
-def _fetch_markets_for_bets(bets: Iterable[dict]) -> Dict[str, dict]:
+def _fetch_markets_for_bets(bets: Iterable[dict], *, api_key: str | None = None) -> Dict[str, dict]:
     unique_ids: List[str] = []
     seen: set[str] = set()
     for bet in bets:
@@ -239,7 +240,10 @@ def _fetch_markets_for_bets(bets: Iterable[dict]) -> Dict[str, dict]:
     market_map: Dict[str, dict] = {}
     for market_id in unique_ids:
         try:
-            payload = _api_request(f"/market/{urllib.parse.quote(market_id, safe='')}")
+            payload = _api_request(
+                f"/market/{urllib.parse.quote(market_id, safe='')}",
+                api_key=api_key,
+            )
         except urllib.error.HTTPError:
             continue
         except urllib.error.URLError:
