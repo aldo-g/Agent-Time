@@ -10,6 +10,7 @@ from typing import Any, Dict
 
 import utils.env_loader as env_loader  # noqa: F401
 from agent.tools import build_agent_tools
+from agent.callbacks import ConsoleLogger, ToolCallTracker
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
@@ -32,10 +33,10 @@ def _build_prompt() -> ChatPromptTemplate:
     system_message = textwrap.dedent(
         """
         You are Agent-Time, an autonomous prediction-market operator. Your goal is to make money on
-        Manifold with play-money Mana while respecting risk constraints and liquidity. You only wake up once every 24 hours,
-        so every run must gather context (portfolio, markets, news), plan trades, and output a clear action plan
-        without assuming follow-up during the day. Use the available tools to research markets (only those resolving by the end of the current calendar year UTC), inspect existing
-        exposure, and request additional information when needed. When you commit to a trade, submit it via `manifold_place_bet`
+        Manifold with play-money Mana while respecting risk constraints and liquidity. Each run must gather context
+        (portfolio, markets, news), plan trades, and output a clear action plan without assuming immediate follow-up. Use the
+        available tools to research markets, inspect existing exposure, and request additional information when needed. Check
+        market close times and resolution criteria before trading. When you commit to a trade, submit it via `manifold_place_bet`
         right after the justification so that recommendations are actually executed. When you are satisfied, provide a final summary using this format:
         1) Start with "Summary -" and briefly recap what was done.
         2) For each executed trade, list two lines: "Trade - <market/action>" followed by "Reason - <justification>".
@@ -52,7 +53,7 @@ def _build_prompt() -> ChatPromptTemplate:
     )
 
 
-def _build_agent_executor(model: str, temperature: float, max_steps: int) -> AgentExecutor:
+def _build_agent_executor(model: str, temperature: float, max_steps: int, verbose: bool) -> AgentExecutor:
     tools = build_agent_tools()
     prompt = _build_prompt()
     llm = _build_llm(model, temperature)
@@ -60,20 +61,25 @@ def _build_agent_executor(model: str, temperature: float, max_steps: int) -> Age
     return AgentExecutor(
         agent=agent,
         tools=tools,
-        verbose=True,
+        verbose=False,
         max_iterations=max_steps,
         handle_parsing_errors=True,
     )
 
 
-def run_daily_session(instruction: str, *, model: str, temperature: float, max_steps: int) -> Dict[str, Any]:
+def run_daily_session(
+    instruction: str, *, model: str, temperature: float, max_steps: int, verbose: bool = False
+) -> Dict[str, Any]:
     """Execute an autonomous session and return the agent's final output."""
-    executor = _build_agent_executor(model, temperature, max_steps)
+    executor = _build_agent_executor(model, temperature, max_steps, verbose)
     inputs = {
         "input": instruction,
         "chat_history": [],
     }
-    return executor.invoke(inputs)
+    callbacks = [ToolCallTracker()]
+    if verbose:
+        callbacks.append(ConsoleLogger())
+    return executor.invoke(inputs, config={"callbacks": callbacks})
 
 
 def parse_args() -> argparse.Namespace:
@@ -81,7 +87,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--instruction",
         default=(
-            "Daily session: inspect the latest markets and the current portfolio, then produce a plan to make money. "
+            "Trading session: inspect the latest markets and the current portfolio, then produce a plan to make money. "
             "Highlight concrete trades, sizing, and catalysts. Ask for research if needed."
         ),
         help="High-level instruction passed to the agent.",
@@ -99,6 +105,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_MAX_STEPS,
         help=f"Maximum tool calls/iterations (default: {DEFAULT_MAX_STEPS}).",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable LangChain verbose output to show intermediate tool calls.",
+    )
     return parser.parse_args()
 
 
@@ -110,6 +121,7 @@ def main() -> None:
             model=args.model,
             temperature=args.temperature,
             max_steps=args.max_steps,
+            verbose=args.verbose,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Agent run failed: {exc}")

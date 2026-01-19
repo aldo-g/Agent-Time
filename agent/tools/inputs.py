@@ -4,14 +4,52 @@ from __future__ import annotations
 
 from typing import List
 
-from langchain_core.pydantic_v1 import BaseModel, Field
+try:
+    # Prefer LangChain's compatibility shim when available (Pydantic v1-style API).
+    from langchain_core.pydantic_v1 import BaseModel, Field, validator, conint, confloat
+except ImportError:
+    try:
+        from pydantic.v1 import BaseModel, Field, validator, conint, confloat  # type: ignore
+    except ImportError:
+        from pydantic import BaseModel, Field, validator, conint, confloat
+
+
+Int1To200 = conint(ge=1, le=200)
+NonNegativeInt = conint(ge=0)
+SearchLimit = conint(ge=1, le=25)
+MediumListLimit = conint(ge=1, le=50)
+HistoryLimit = conint(ge=1, le=500)
+MaxPositionsLimit = conint(ge=1, le=50)
+WebScrapeChars = conint(ge=200, le=10000)
+PositiveAmount = confloat(gt=0.0)
+ProbBounded = confloat(gt=0.0, lt=1.0)
 
 
 class FetchMarketsInput(BaseModel):
     """Inputs for the market discovery tool."""
 
-    limit: int = Field(20, ge=1, le=200, description="Number of events to inspect (max 200).")
-    offset: int = Field(0, ge=0, description="Pagination offset (multiples of limit).")
+    limit: Int1To200 = Field(20, description="Number of events to inspect (max 200).")
+    offset: NonNegativeInt = Field(0, description="Pagination offset (multiples of limit).")
+
+    @validator("limit", pre=True)
+    def _coerce_limit(cls, value: object) -> int:
+        """Accept ints or numeric strings; fall back to default on null/empty."""
+        if value is None or value == "":
+            return 20
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 20
+
+    @validator("offset", pre=True)
+    def _coerce_offset(cls, value: object) -> int:
+        """Accept ints or numeric strings; fall back to default on null/empty."""
+        if value is None or value == "":
+            return 0
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
 
 
 class PortfolioInput(BaseModel):
@@ -38,12 +76,9 @@ class PlaceBetInput(BaseModel):
 
     market_id: str = Field(..., description="Manifold market id or slug.")
     outcome: str = Field(..., description="Desired outcome (YES/NO or answer label).")
-    amount: float = Field(..., gt=0.0, description="Mana to wager on the outcome.")
-    limit_prob: float | None = Field(
-        default=None,
-        gt=0.0,
-        lt=1.0,
-        description="Optional limit probability (0-1). Leave empty for a market order.",
+    amount: PositiveAmount = Field(..., description="Mana to wager on the outcome.")
+    limit_prob: ProbBounded | None = Field(
+        default=None, description="Optional limit probability (0-1). Leave empty for a market order."
     )
     answer: str | None = Field(
         default=None,
@@ -56,7 +91,7 @@ class SellPositionInput(BaseModel):
 
     market_id: str = Field(..., description="Manifold market id or slug.")
     outcome: str = Field(..., description="Desired outcome (YES/NO or answer label).")
-    shares: float = Field(..., gt=0.0, description="Number of shares to sell.")
+    shares: PositiveAmount = Field(..., description="Number of shares to sell.")
     answer: str | None = Field(
         default=None,
         description="Optional answer label for multi-choice markets when outcome alone is ambiguous.",
@@ -68,13 +103,8 @@ class LimitOrderPreviewInput(BaseModel):
 
     market_id: str = Field(..., description="Manifold market id or slug.")
     outcome: str = Field(..., description="Desired outcome (YES/NO or answer label).")
-    amount: float = Field(..., gt=0.0, description="Mana to wager on the outcome.")
-    limit_prob: float | None = Field(
-        default=None,
-        gt=0.0,
-        lt=1.0,
-        description="Optional limit probability (0-1).",
-    )
+    amount: PositiveAmount = Field(..., description="Mana to wager on the outcome.")
+    limit_prob: ProbBounded | None = Field(default=None, description="Optional limit probability (0-1).")
     answer: str | None = Field(
         default=None,
         description="Optional answer label for multi-choice markets when outcome alone is ambiguous.",
@@ -85,24 +115,24 @@ class SearchInput(BaseModel):
     """Inputs for the DuckDuckGo search tool."""
 
     query: str = Field(..., description="Keywords to search for.")
-    limit: int = Field(
-        default=5,
-        ge=1,
-        le=25,
-        description="Maximum number of results to return (1-25).",
-    )
+    limit: SearchLimit = Field(default=5, description="Maximum number of results to return (1-25).")
+
+    @validator("limit", pre=True)
+    def _coerce_limit(cls, value: object) -> int:
+        """Accept ints or numeric strings; fall back to default on null/empty."""
+        if value is None or value == "":
+            return 5
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 5
 
 
 class WebScrapeInput(BaseModel):
     """Inputs for web page scraping."""
 
     url: str = Field(..., description="URL to fetch and summarize.")
-    max_chars: int = Field(
-        default=2000,
-        ge=200,
-        le=10000,
-        description="Maximum characters of text to return.",
-    )
+    max_chars: WebScrapeChars = Field(default=2000, description="Maximum characters of text to return.")
 
 
 class NotebookEvalInput(BaseModel):
@@ -118,36 +148,71 @@ class RssFetchInput(BaseModel):
         default=None,
         description="Optional keyword filter applied to titles/snippets.",
     )
-    limit: int = Field(default=10, ge=1, le=50, description="Maximum items to return.")
+    limit: MediumListLimit = Field(default=10, description="Maximum items to return.")
     sources: str | None = Field(
         default=None,
         description="Optional comma-separated RSS URLs to override the default NEWS_RSS_URLS set.",
     )
+
+    @validator("limit", pre=True)
+    def _coerce_limit(cls, value: object) -> int:
+        """Accept ints or numeric strings; fall back to default on null/empty."""
+        if value is None or value == "":
+            return 10
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 10
 
 
 class BlueskySearchInput(BaseModel):
     """Inputs for the Bluesky search tool."""
 
     query: str = Field(..., description="Search terms, hashtags, or keywords.")
-    limit: int = Field(default=10, ge=1, le=50, description="Maximum posts to return.")
+    limit: MediumListLimit = Field(default=10, description="Maximum posts to return.")
+
+    @validator("limit", pre=True)
+    def _coerce_limit(cls, value: object) -> int:
+        """Accept ints or numeric strings; fall back to default on null/empty."""
+        if value is None or value == "":
+            return 10
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 10
 
 
 class MarketHistoryInput(BaseModel):
     """Inputs for the market history tool."""
 
     market_id: str = Field(..., description="Manifold market id or slug.")
-    limit: int = Field(default=200, ge=1, le=500, description="Number of recent bets to analyze.")
+    limit: HistoryLimit = Field(default=200, description="Number of recent bets to analyze.")
+
+    @validator("limit", pre=True)
+    def _coerce_limit(cls, value: object) -> int:
+        """Accept ints or numeric strings; fall back to default on null/empty."""
+        if value is None or value == "":
+            return 200
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 200
 
 
 class PortfolioAnalyticsInput(BaseModel):
     """Inputs for the portfolio analytics tool."""
 
-    max_positions: int = Field(
-        default=5,
-        ge=1,
-        le=50,
-        description="Number of largest positions to surface.",
-    )
+    max_positions: MaxPositionsLimit = Field(default=5, description="Number of largest positions to surface.")
+
+    @validator("max_positions", pre=True)
+    def _coerce_max_positions(cls, value: object) -> int:
+        """Accept ints or numeric strings; fall back to default on null/empty/invalid."""
+        if value is None or value == "":
+            return 5
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 5
 
 
 class EventTimerInput(BaseModel):
@@ -161,21 +226,9 @@ class RiskGateInput(BaseModel):
 
     market_id: str = Field(..., description="Manifold market id or slug.")
     outcome: str = Field(..., description="YES/NO or answer label.")
-    amount: float = Field(..., gt=0.0, description="Proposed Mana to wager.")
-    belief_prob: float = Field(
-        ...,
-        gt=0.0,
-        lt=1.0,
-        description="Agent's subjective probability (0-1).",
-    )
-    market_prob: float | None = Field(
-        default=None,
-        gt=0.0,
-        lt=1.0,
-        description="Current market probability (0-1).",
-    )
-    bankroll: float | None = Field(
-        default=None,
-        gt=0.0,
-        description="Optional bankroll override; uses cash + positions if omitted.",
+    amount: PositiveAmount = Field(..., description="Proposed Mana to wager.")
+    belief_prob: ProbBounded = Field(..., description="Agent's subjective probability (0-1).")
+    market_prob: ProbBounded | None = Field(default=None, description="Current market probability (0-1).")
+    bankroll: PositiveAmount | None = Field(
+        default=None, description="Optional bankroll override; uses cash + positions if omitted."
     )

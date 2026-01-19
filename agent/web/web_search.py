@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import calendar
 import os
+import warnings
 from dataclasses import dataclass
 from datetime import date
 from typing import Iterable, List, Optional
@@ -17,6 +18,11 @@ try:  # pragma: no cover - optional dependency
 except ImportError:  # pragma: no cover - optional dependency
     try:
         from duckduckgo_search import DDGS  # type: ignore
+        warnings.filterwarnings(
+            "ignore",
+            message=r"This package \(`duckduckgo_search`\) has been renamed to `ddgs`!",
+            category=RuntimeWarning,
+        )
     except ImportError:
         DDGS = None  # type: ignore[assignment]
 
@@ -37,31 +43,17 @@ class SearchResult:
 
 
 def _resolve_timelimit() -> Optional[str]:
+    """Return a DuckDuckGo timelimit string or None.
+
+    ddgs (and newer duckduckgo_search) accept short tokens like 'd', 'w', 'm', 'y'.
+    The previous date-range format caused errors, so default to None unless the
+    caller explicitly opts in via DDG_TIMELIMIT.
+    """
     explicit = os.environ.get("DDG_TIMELIMIT")
     if explicit is not None:
         explicit = explicit.strip()
         return explicit or None
-    months = os.environ.get("DDG_RECENT_MONTHS", "6")
-    if months is None:
-        return None
-    try:
-        months_back = int(months)
-    except ValueError:
-        return None
-    if months_back <= 0:
-        return None
-    today = date.today()
-    year = today.year
-    month = today.month - months_back
-    day = today.day
-    while month <= 0:
-        month += 12
-        year -= 1
-    days_in_month = calendar.monthrange(year, month)[1]
-    if day > days_in_month:
-        day = days_in_month
-    start = date(year, month, day)
-    return f"{start.isoformat()}..{today.isoformat()}"
+    return None
 
 
 def search_web(query: str, *, max_results: int = DEFAULT_SEARCH_LIMIT, region: str = "wt-wt") -> List[SearchResult]:

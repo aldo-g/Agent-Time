@@ -27,7 +27,7 @@ DEFAULT_CONFIG_PATH = os.environ.get("AGENT_CONFIG_PATH", "agents.json")
 DEFAULT_RESULTS_PATH = os.environ.get("AGENT_RESULTS_PATH", "results/multi_agent_runs.jsonl")
 MARKET_CACHE_ENV = "PREDICT_ARENA_MARKET_CACHE"
 DEFAULT_MARKET_CACHE_PATH = Path(os.environ.get(MARKET_CACHE_ENV, "data/shared_markets.json"))
-DEFAULT_MARKET_LIMIT = int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "40"))
+DEFAULT_MARKET_LIMIT = int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "5"))
 PROVIDER_LABELS = {
     "openai": "OpenAI",
     "anthropic": "Claude",
@@ -211,6 +211,24 @@ def _parse_trades_from_output(output: object) -> List[Dict[str, str]]:
     for raw_line in output.splitlines():
         line = raw_line.strip()
         clean_line = line.strip("*_- ")
+        wager_match = re.search(
+            r"wagered\s+([\d.,]+)\s+mana\s+on\s+'([^']+)'(?:\s+in\s+market\s+([A-Za-z0-9_-]+))?"
+            r"(?:.*?bet id:?\s*([A-Za-z0-9]+))?",
+            clean_line,
+            flags=re.IGNORECASE,
+        )
+        if wager_match:
+            amount, outcome, market_id, bet_id = wager_match.groups()
+            summary_parts = [
+                f"Wagered {amount} MANA on '{outcome}'",
+            ]
+            if market_id:
+                summary_parts.append(f"market {market_id}")
+            if bet_id:
+                summary_parts.append(f"(Bet ID {bet_id})")
+            trades.append({"trade": " ".join(summary_parts).strip(), "reason": ""})
+            last_trade = trades[-1]
+            continue
         match_trade = re.search(r"trade\s*-\s*(.+)", clean_line, flags=re.IGNORECASE)
         if match_trade:
             last_trade = {"trade": match_trade.group(1).strip("* "), "reason": ""}
@@ -227,37 +245,51 @@ def _parse_trades_from_output(output: object) -> List[Dict[str, str]]:
     return filtered
 
 
+def _extract_no_trade_reason(output: object) -> str | None:
+    """Return a short reason for no trades if one can be inferred from the output text."""
+    if not isinstance(output, str):
+        return None
+    for raw_line in output.splitlines():
+        line = raw_line.strip().strip("#*- ")
+        if not line:
+            continue
+        snippet = line
+        if len(snippet) > 200:
+            snippet = snippet[:197] + "..."
+        return snippet
+    return None
+
+
 def _print_session_summary(
     market_events: List[EventSummary] | None,
     agent_records: List[Dict[str, Any]],
 ) -> None:
     print("\n=== Session Snapshot ===")
     if market_events:
-        print("Markets provided:")
-        for event in market_events:
-            label = event.title or event.event_id
-            url_note = f" ({event.url})" if event.url else ""
-            print(f"- {label}{url_note}")
+        print(f"Markets provided: {len(market_events)} shared events.")
     else:
         print("Markets provided: unavailable (live fetch failed).")
-    print("\nTrades:")
+    print("\nAgent results:")
     for record in agent_records:
         label = PROVIDER_LABELS.get(record["provider"].lower(), record["agent"])
         trades = record.get("trades") or []
         tool_calls = record.get("tool_calls") or []
-        if not trades:
-            status = "success" if record.get("success") else "failed"
-            reason = record.get("error") or "No trades recorded."
-            print(f"{label}: ({status}) {reason}")
-            if tool_calls:
-                print(f"{label} tools: {', '.join(tool_calls)}")
+        status = "success" if record.get("success") else "failed"
+        error = record.get("error")
+        no_trade_reason = record.get("no_trade_reason")
+        if trades:
+            headline = trades[0].get("trade", "").strip()
+            more = f" (+{len(trades)-1} more)" if len(trades) > 1 else ""
+            print(f"{label}: {status}; trades={len(trades)} {more} {headline}")
+        else:
+            reason_note = ""
+            if no_trade_reason:
+                reason_note = f" Reason: {no_trade_reason}"
+            print(f"{label}: {status}; {error or 'No trades recorded.'}{reason_note}")
+        if error and not trades:
             continue
-        for trade in trades:
-            reason = trade.get("reason", "").strip()
-            reason_note = f" - {reason}" if reason else ""
-            print(f"{label}: {trade['trade']}{reason_note}")
         if tool_calls:
-            print(f"{label} tools: {', '.join(tool_calls)}")
+            print(f"{label} tools used: {', '.join(tool_calls)}")
 
 
 def run_multi_agent(
@@ -266,6 +298,7 @@ def run_multi_agent(
     results_path: str,
     market_limit: int,
     market_cache_path: Path | None = None,
+    verbose: bool = False,
 ) -> None:
     # Ensure a shared MANIFOLD_API_KEY cannot leak across agents.
     os.environ.pop("MANIFOLD_API_KEY", None)
@@ -280,6 +313,7 @@ def run_multi_agent(
         success = False
         output: str | Dict[str, Any] | None = None
         error: str | None = None
+        tool_calls = None
         portfolio_snapshot = None
         portfolio_error = None
         with (
@@ -288,39 +322,55 @@ def run_multi_agent(
             _temporary_env("AGENT_PROVIDER", cfg.model_provider),
             _temporary_env("AGENT_MODEL", cfg.model),
         ):
-            try:
-                result = run_daily_session(
-                    instruction,
-                    model=cfg.model,
-                    provider=cfg.model_provider,
-                    temperature=cfg.resolve_temperature(),
-                    max_steps=cfg.resolve_max_steps(),
-                )
-                output = result.get("output") if isinstance(result, dict) else result
-                tool_calls = result.get("tool_calls_unique") if isinstance(result, dict) else None
-                success = True
+            for attempt in range(2):
                 try:
-                    snapshot = fetch_portfolio_snapshot(None)
-                    portfolio_snapshot = _snapshot_to_dict(snapshot)
-                    if tool_calls and any(
-                        call in tool_calls for call in ("manifold_place_bet", "manifold_sell_position")
-                    ):
+                    result = run_daily_session(
+                        instruction,
+                        model=cfg.model,
+                        provider=cfg.model_provider,
+                        temperature=cfg.resolve_temperature(),
+                        max_steps=cfg.resolve_max_steps(),
+                        verbose=verbose,
+                    )
+                    output = result.get("output") if isinstance(result, dict) else result
+                    tool_calls = result.get("tool_calls_unique") if isinstance(result, dict) else None
+                    success = True
+                    error = None  # clear any previous attempt errors
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    msg = str(exc).strip()
+                    error = msg or f"{exc.__class__.__name__}"
+                    if attempt == 0:
+                        print(f"Retrying agent '{cfg.name}' after error: {error}")
                         time.sleep(2)
+                        continue
+                    if cfg.model_provider.lower() in {"gemini", "google"}:
+                        lowered = error.lower()
+                        if "resourceexhausted" in lowered or "quota" in lowered or "429" in lowered:
+                            error = (
+                                "Gemini quota hit (429 ResourceExhausted). "
+                                "Check your plan/usage limits and retry later."
+                            )
+                    print(f"Agent '{cfg.name}' failed: {error}")
+            if success:
+                for attempt in range(2):
+                    try:
                         snapshot = fetch_portfolio_snapshot(None)
                         portfolio_snapshot = _snapshot_to_dict(snapshot)
-                except Exception as exc:  # noqa: BLE001
-                    portfolio_error = str(exc)
-            except Exception as exc:  # noqa: BLE001
-                error = str(exc)
-                if cfg.model_provider.lower() in {"gemini", "google"}:
-                    lowered = error.lower()
-                    if "resourceexhausted" in lowered or "quota" in lowered or "429" in lowered:
-                        error = (
-                            "Gemini quota hit (429 ResourceExhausted). "
-                            "Check your plan/usage limits and retry later."
-                        )
-                print(f"Agent '{cfg.name}' failed: {error}")
-                tool_calls = None
+                        if tool_calls and any(
+                            call in tool_calls
+                            for call in ("manifold_place_bet", "manifold_sell_position")
+                        ):
+                            time.sleep(2)
+                            snapshot = fetch_portfolio_snapshot(None)
+                            portfolio_snapshot = _snapshot_to_dict(snapshot)
+                        break
+                    except Exception as exc:  # noqa: BLE001
+                        msg = str(exc).strip()
+                        portfolio_error = msg or f"{exc.__class__.__name__}"
+                        if attempt == 0:
+                            time.sleep(2)
+                            continue
         record = {
             "timestamp": timestamp,
             "agent": cfg.name,
@@ -329,18 +379,21 @@ def run_multi_agent(
             "instruction": instruction,
             "success": success,
             "output": output,
-            "error": error,
+            "error": None if success else error,
             "tool_calls": tool_calls,
             "portfolio": portfolio_snapshot,
             "portfolio_error": portfolio_error,
         }
         _persist_result(record, results_path)
+        trades = _parse_trades_from_output(output)
+        no_trade_reason = _extract_no_trade_reason(output) if success and not trades else None
         record_summary = {
             "agent": cfg.name,
             "provider": cfg.model_provider,
             "success": success,
             "error": error,
-            "trades": _parse_trades_from_output(output),
+            "trades": trades,
+            "no_trade_reason": no_trade_reason,
             "tool_calls": tool_calls,
         }
         session_records.append(record_summary)
@@ -372,18 +425,67 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_MARKET_CACHE_PATH),
         help="File path for the shared market snapshot JSON.",
     )
+    parser.add_argument(
+        "--agent",
+        dest="agents",
+        action="append",
+        help=(
+            "Run only the named agent(s) from the config. "
+            "Repeat the flag or separate names with commas (e.g. --agent gpt-runner --agent claude-runner)."
+        ),
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable LangChain verbose output inside each agent run.",
+    )
     return parser
+
+
+def _parse_agent_filters(raw_agents: list[str] | None) -> list[str]:
+    if not raw_agents:
+        return []
+    agents: list[str] = []
+    for raw in raw_agents:
+        for name in raw.split(","):
+            trimmed = name.strip()
+            if trimmed:
+                agents.append(trimmed)
+    return agents
+
+
+def _select_agents(configs: List[AgentConfig], requested: list[str]) -> List[AgentConfig]:
+    if not requested:
+        return configs
+    normalized = {cfg.name.lower(): cfg for cfg in configs}
+    selected: list[AgentConfig] = []
+    missing: list[str] = []
+    for name in requested:
+        match = normalized.get(name.lower())
+        if match:
+            if match not in selected:
+                selected.append(match)
+        else:
+            missing.append(name)
+    if missing:
+        available = ", ".join(cfg.name for cfg in configs)
+        raise ValueError(f"Requested agent(s) not found: {', '.join(missing)}. Available: {available}")
+    return selected
 
 
 def main() -> None:
     parser = _build_arg_parser()
     args = parser.parse_args()
     configs = load_agent_configs(args.config)
+    requested_agents = _parse_agent_filters(args.agents)
+    if requested_agents:
+        configs = _select_agents(configs, requested_agents)
     run_multi_agent(
         configs,
         results_path=args.results,
         market_limit=args.market_limit,
         market_cache_path=Path(args.market_cache),
+        verbose=args.verbose,
     )
 
 

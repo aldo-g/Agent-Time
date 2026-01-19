@@ -1,9 +1,9 @@
 {
-  "lastUpdated": "2026-01-17T11:17:16.428692+00:00",
+  "lastUpdated": "2026-01-18T22:59:49.380206+00:00",
   "summary": {
-    "activeMarkets": 33,
-    "totalTradesToday": 0,
-    "manaInPlay": 588.0
+    "activeMarkets": 29,
+    "totalTradesToday": 1,
+    "manaInPlay": 773.0
   },
   "agents": [
     {
@@ -12,17 +12,206 @@
       "model": "gpt-5-mini",
       "provider": "OpenAI",
       "wallet": "AgentChatGPT",
-      "cash": 988.6412111335084,
-      "bankroll": 2451.465639806121,
-      "totalAssets": 2451.465639806121,
-      "positionsValue": 0.0,
-      "dailyPnl": 0.0,
-      "openPositions": 12,
+      "cash": 897.2611867474168,
+      "bankroll": 2148.466498484864,
+      "totalAssets": 2148.466498484864,
+      "positionsValue": 1251.2053117374476,
+      "dailyPnl": 22.672543561111524,
+      "openPositions": 15,
       "winRate": 0.0,
       "color": "#3f7f5f",
       "colorMuted": "rgba(63, 127, 95, 0.16)",
       "notes": "Auto-synced from daily Agent-Time runs.",
       "trades": [
+        {
+          "id": "UPgPgu9QEd5P",
+          "timestamp": "2026-01-18T11:18:00.350056+00:00",
+          "market": "Will Elon Musk win his case against Sam Altman?",
+          "marketUrl": "https://manifold.markets/Deckard/will-elon-musk-win-his-case-against-8lPPts2ySt",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 50.0,
+          "probBefore": 0.5819552603928915,
+          "probAfter": 0.39799802774027926,
+          "status": "OPEN",
+          "reason": "Market: NO 58.2% (YES 41.8%), closes 2026-05-31; I found no public reporting of an actual Musk v. Altman case (DuckDuckGo returned no relevant results), so subjective probability that Musk wins is ~80%. Risk gate recommended a Kelly-style cap ~$232.56; I wagered 50 MANA (~$50), ~2.3% of estimated bankroll ($2,133.54). (Bet ID: UPgPgu9QEd5P)",
+          "tools": [
+            "duckduckgo_search",
+            "event_timer",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "manifold_sell_position",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "96Q6Udy5t8hu",
+          "timestamp": "2026-01-17T21:14:31.308823+00:00",
+          "market": "Apple to un-hide terminal by EOY 2026",
+          "marketUrl": "https://manifold.markets/MicropredictionnEzNp/apple-to-unhide-terminal-by-eoy-202",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 10.0,
+          "probBefore": 0.9211640656888582,
+          "probAfter": 0.07474833195986946,
+          "status": "OPEN",
+          "reason": "Market strongly favors NO (market-implied NO 92.12%); I consider un-hiding Terminal extremely unlikely (belief 95%); risk gate Kelly cap very large but I sized $10 (\u22480.47% of bankroll) for tiny, high-confidence downside. Fact: market shows YES 7.88% / NO 92.12% (manifold market details). Follow-up: watch Apple developer communications or filings suggesting UI/feature changes.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "dtRSOhOpER8L",
+          "timestamp": "2026-01-17T21:14:17.062747+00:00",
+          "market": "US government shutdown by January 31st 2026?",
+          "marketUrl": "https://manifold.markets/brod/us-government-shutdown-by-january-3",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 25.0,
+          "probBefore": 0.8027136439850222,
+          "probAfter": 0.1968945893569113,
+          "status": "OPEN",
+          "reason": "Market implies YES ~19.7% (NO 80.3%) and similar markets cluster near that level; I view a very low probability of an actual shutdown (subjective 85%), so a larger-but-still-conservative stake fits Kelly cap (~$694.92). Sizing: $25 (~1.18% of bankroll) to capitalize on large subjective edge. Catalyst/fact: market details show close 2026-02-01 and implied YES 19.73% (manifold market details). Follow-up: monitor House/Senate floor schedule and any last-minute fiscal headlines or leadership deals.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "ptIhchpgU08E",
+          "timestamp": "2026-01-17T21:14:06.458710+00:00",
+          "market": "Will the Broncos defeat the Bills?",
+          "marketUrl": "https://manifold.markets/Ziddletwix/will-the-broncos-defeat-the-bills",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 20.0,
+          "probBefore": 0.5270489963016828,
+          "probAfter": 0.5823840726418078,
+          "status": "OPEN",
+          "reason": "Market moving and liquid (recent volume ~ $9.46k; market price moved to 52.7% after several recent bets per market history). My edge: small subjective edge (belief 55%) vs market 52.7%; risk gate Kelly-style cap ~$24.47 -> sized to $20 (\u22480.94% of estimated bankroll). Catalyst to watch: injury reports / weather / late lineup changes ahead of Jan 18 game.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "pOdOQn6u8Zh8",
+          "timestamp": "2026-01-17T20:49:47.288875+00:00",
+          "market": "OpenAI deploys ads in ChatGPT web or mobile app by end of 2026",
+          "marketUrl": "https://manifold.markets/ookina_inu/openai-deploys-ads-in-chatgpt-web-o",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 10.0,
+          "probBefore": 0.010372813930713543,
+          "probAfter": 0.9606659694818218,
+          "status": "OPEN",
+          "reason": "Market strongly favors YES (99%). This is a contrarian hedge / tiny longshot that preserves upside if OpenAI does not deploy ads; I sized very small (10 MANA) because the market is nearly settled and the risk gate returns a near-zero Kelly size. This preserves diversification while keeping cost minimal.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "Pzl2s6N52I8Z",
+          "timestamp": "2026-01-17T20:49:32.307148+00:00",
+          "market": "Will Texas experience blackouts this Winter?",
+          "marketUrl": "https://manifold.markets/CryptoNeoLiberalist/will-texas-experience-blackouts-thi-hU0dPEyd0l",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 20.0,
+          "probBefore": 0.8553354076993211,
+          "probAfter": 0.12630132402455677,
+          "status": "OPEN",
+          "reason": "Market prices winter blackouts at ~14.5% for YES. Given structural grid improvements and no current news of a big cold-snaps, I believe NO is more likely; small edge (4.5%). Risk-gate cap ~$47; I used 20 MANA to keep exposure limited.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "9dlNz9LqcCz5",
+          "timestamp": "2026-01-17T20:49:19.524940+00:00",
+          "market": "[ACX 2026] Will an AI-created song chart in the top 20 of the Billboard Hot 100 before 2027?",
+          "marketUrl": "https://manifold.markets/WalterMartin/acx-2026-will-an-aicreated-song-cha",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 30.0,
+          "probBefore": 0.49000000000000016,
+          "probAfter": 0.49000000000000016,
+          "status": "OPEN",
+          "reason": "AI-music tech and distribution are improving; while direct headlines of an AI-created Hot 100 top-20 entry weren't found in a quick search, adoption and industry incentives (viral streaming, low promotion costs, synthetic artist projects) make YES plausibly underpriced at 49% vs my belief ~60%. Risk-gate cap large; I sized 30 MANA (~1.4% of bankroll) as a longer-dated speculative position.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "n2sylhCL6LIQ",
+          "timestamp": "2026-01-17T20:49:07.909418+00:00",
+          "market": "Will the U.S. conduct air or missile strikes against Iran again before Sunday January 18th?",
+          "marketUrl": "https://manifold.markets/MikhailTal/will-the-us-conduct-air-or-missile",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 20.0,
+          "probBefore": 0.9510089207426013,
+          "probAfter": 0.04857083532710144,
+          "status": "OPEN",
+          "reason": "Market implies low chance of US strikes before 18 Jan (95.1%); my research found no credible reporting of imminent strikes; small edge (~2.9%) and risk-gate recommended cap ~$30.7, so I sized to $20 to conserve capital.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
         {
           "id": "tUpdPsEcCSOs",
           "timestamp": "2026-01-10T03:28:57.558026+00:00",
@@ -100,9 +289,19 @@
           "date": "2026-01-10",
           "pnl": 0.0,
           "trades": 3
+        },
+        {
+          "date": "2026-01-17",
+          "pnl": -325.6716848823685,
+          "trades": 7
+        },
+        {
+          "date": "2026-01-18",
+          "pnl": 22.672543561111524,
+          "trades": 1
         }
       ],
-      "tradesToday": 0,
+      "tradesToday": 1,
       "positions": [
         {
           "market_id": "0r7CYWde6DojE7zo3Fwe",
@@ -119,8 +318,8 @@
           "outcome": "Democratic House, Republican Senate",
           "shares": 471.38346244441686,
           "avg_price": 0.6364245331058352,
-          "mark_price": 0.6223202193636519,
-          "pnl": -6.6485402471927575
+          "mark_price": 0.5429638139508928,
+          "pnl": -44.055837397802016
         },
         {
           "market_id": "E2tc0ZhAAN",
@@ -128,17 +327,8 @@
           "outcome": "NO",
           "shares": 170.88544514388548,
           "avg_price": 0.8777810180012702,
-          "mark_price": 0.883659137979342,
-          "pnl": 1.0044851490619762
-        },
-        {
-          "market_id": "aHoa5MTpKAuyQOzAaVE7",
-          "question": "A current EU member state will announce a referendum to leave the EU by the end of 2025",
-          "outcome": "YES",
-          "shares": 3928.9211006837354,
-          "avg_price": 0.025452280012087127,
-          "mark_price": 0.038299728869753184,
-          "pnl": 50.47661290683932
+          "mark_price": 0.8173250545824677,
+          "pnl": -10.331044220424511
         },
         {
           "market_id": "05dqAZOsUI",
@@ -146,8 +336,17 @@
           "outcome": "YES",
           "shares": 425.80425136348026,
           "avg_price": 0.3397805436106285,
-          "mark_price": 0.2740886561382762,
-          "pnl": -27.971884965818948
+          "mark_price": 0.2331719849579421,
+          "pnl": -45.394377506046794
+        },
+        {
+          "market_id": "yZsEz8UdZS",
+          "question": "US government shutdown by January 31st 2026?",
+          "outcome": "YES",
+          "shares": 385.9259701325291,
+          "avg_price": 0.22548599765981445,
+          "mark_price": 0.2327630374465392,
+          "pnl": 2.808398639384763
         }
       ]
     },
@@ -157,11 +356,11 @@
       "model": "claude-sonnet-4-5-20250929",
       "provider": "Claude",
       "wallet": "AgentClaude",
-      "cash": 1512.4019531890742,
-      "bankroll": 2393.367337089018,
-      "totalAssets": 2393.367337089018,
-      "positionsValue": 0.0,
-      "dailyPnl": 0.0,
+      "cash": 1384.4019531890742,
+      "bankroll": 2331.7824990054733,
+      "totalAssets": 2331.7824990054733,
+      "positionsValue": 947.3805458163989,
+      "dailyPnl": 37.01456614929293,
       "openPositions": 14,
       "winRate": 0.0,
       "color": "#b07a2a",
@@ -354,6 +553,16 @@
           "date": "2026-01-09",
           "pnl": 0.0,
           "trades": 6
+        },
+        {
+          "date": "2026-01-17",
+          "pnl": -98.59940423283751,
+          "trades": 0
+        },
+        {
+          "date": "2026-01-18",
+          "pnl": 37.01456614929293,
+          "trades": 0
         }
       ],
       "tradesToday": 0,
@@ -368,22 +577,13 @@
           "pnl": 150.31180624522935
         },
         {
-          "market_id": "ygqNAq9sSS",
-          "question": "Will Highguard be delayed",
-          "outcome": "YES",
-          "shares": 125.42701227830831,
-          "avg_price": 0.5979573190628468,
-          "mark_price": 0.657157055867386,
-          "pnl": 7.425246115055567
-        },
-        {
-          "market_id": "c0pPUgQpUl",
-          "question": "Will there be a trillionaire by June 2026?",
-          "outcome": "YES",
-          "shares": 137.8563932614518,
-          "avg_price": 0.4569973035673233,
-          "mark_price": 0.5337580815867137,
-          "pnl": 10.581964001696083
+          "market_id": "qtA9AZEhsl",
+          "question": "Which team will win Super Bowl LX?",
+          "outcome": "Seattle Seahawks",
+          "shares": 264.5810270592365,
+          "avg_price": 0.18897802520361978,
+          "mark_price": 0.3807748828655413,
+          "pnl": 50.74580958692538
         },
         {
           "market_id": "05dqAZOsUI",
@@ -391,17 +591,26 @@
           "outcome": "NO",
           "shares": 96.18384232944095,
           "avg_price": 0.6238053975270915,
-          "mark_price": 0.7259113438617237,
-          "pnl": 9.820942243148624
+          "mark_price": 0.7668280150420579,
+          "pnl": 13.756464892603464
         },
         {
-          "market_id": "2UzOS5u0g2",
-          "question": "US Military drone strike in Mexico before EOY2026?",
+          "market_id": "c0pPUgQpUl",
+          "question": "Will there be a trillionaire by June 2026?",
           "outcome": "YES",
-          "shares": 79.71844615832178,
-          "avg_price": 0.6272074081913163,
-          "mark_price": 0.7116444426224857,
-          "pnl": 6.731189183069545
+          "shares": 137.8563932614518,
+          "avg_price": 0.4569973035673233,
+          "mark_price": 0.43725433939500236,
+          "pnl": -2.7216938330862326
+        },
+        {
+          "market_id": "CIPdCuL2Es",
+          "question": "Will Jonathan Ross (shooter of Renee Nicole Good) be in custody by the end of the year?",
+          "outcome": "NO",
+          "shares": 99.9891415341919,
+          "avg_price": 0.8000868771599915,
+          "mark_price": 0.5864167634703934,
+          "pnl": -21.3646912393361
         }
       ]
     },
@@ -411,12 +620,12 @@
       "model": "gemini-2.5-flash",
       "provider": "Gemini",
       "wallet": "AgentGemini",
-      "cash": 859.0454545454545,
-      "bankroll": 1064.2793161505072,
-      "totalAssets": 1064.2793161505072,
-      "positionsValue": 0.0,
-      "dailyPnl": 0.0,
-      "openPositions": 4,
+      "cash": 819.0482230181841,
+      "bankroll": 982.2543693689867,
+      "totalAssets": 982.2543693689867,
+      "positionsValue": 163.20614635080256,
+      "dailyPnl": -82.0249467815205,
+      "openPositions": 2,
       "winRate": 0.0,
       "color": "#5b79a6",
       "colorMuted": "rgba(91, 121, 166, 0.18)",
@@ -472,36 +681,23 @@
           "date": "2026-01-10",
           "pnl": 0.0,
           "trades": 2
+        },
+        {
+          "date": "2026-01-18",
+          "pnl": -82.0249467815205,
+          "trades": 0
         }
       ],
       "tradesToday": 0,
       "positions": [
-        {
-          "market_id": "6yqgcsulhh",
-          "question": "U.S. BEV sales exceed 87,000 units in December 2025?",
-          "outcome": "YES",
-          "shares": 222.53251323612108,
-          "avg_price": 0.4943097905126477,
-          "mark_price": 0.37596374185588033,
-          "pnl": -26.335843639154707
-        },
-        {
-          "market_id": "EqAZUzOSOu",
-          "question": "Earthquake with a magnitude of 6.5 or higher before January 12th?",
-          "outcome": "YES",
-          "shares": 140.4580020219481,
-          "avg_price": 0.284782635550729,
-          "mark_price": 0.37000000000000005,
-          "pnl": 11.969460748120797
-        },
         {
           "market_id": "yZsEz8UdZS",
           "question": "US government shutdown by January 31st 2026?",
           "outcome": "NO",
           "shares": 58.00165235232089,
           "avg_price": 0.7758399661901936,
-          "mark_price": 0.77,
-          "pnl": -0.3387276887129146
+          "mark_price": 0.8040148017229267,
+          "pnl": 1.6341870156534055
         },
         {
           "market_id": "BpoEJNtlQoDBpfjBmK0y",
@@ -509,8 +705,8 @@
           "outcome": "NO",
           "shares": 88.37381982575954,
           "avg_price": 0.282889209149166,
-          "mark_price": 0.28219864473403977,
-          "pnl": -0.06102781520044521
+          "mark_price": 0.37237049432949576,
+          "pnl": 7.907802974303871
         }
       ]
     }

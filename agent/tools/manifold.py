@@ -34,28 +34,32 @@ KELLY_MULTIPLIER = float(os.environ.get("RISK_KELLY_MULTIPLIER", "0.5"))
 
 
 def _summarize_event(event: EventSummary) -> str:
-    """Return a single-line synopsis of an event's key markets."""
-    markets: List[MarketSummary] = event.markets[:5]
-    snippets: List[str] = []
-    for market in markets:
-        odds = ", ".join(
-            f"{outcome.name} {outcome.price * 100:.1f}%"
-            for outcome in market.outcomes[:4]
-        )
-        if len(market.outcomes) > 4:
-            odds += ", ..."
-        id_note = f"(id: {market.market_id})" if market.market_id else ""
-        snippets.append(f"{market.question} {id_note}: {odds}")
-    extra = len(event.markets) - len(markets)
-    extra_note = f" (+{extra} more markets)" if extra > 0 else ""
-    tag_note = f" Tags: {', '.join(event.tags)}." if event.tags else ""
-    url_note = f" URL: {event.url}." if event.url else ""
-    return f"{event.title}{extra_note}{tag_note}{url_note}\n" + "\n".join(f"  - {line}" for line in snippets)
+    """Return a compact synopsis of a single event."""
+    first_market = event.markets[0] if event.markets else None
+    parts: List[str] = [event.title or (event.event_id or "Untitled event")]
+    if first_market:
+        top_outcome = first_market.outcomes[0] if first_market.outcomes else None
+        odds_note = f"{top_outcome.name} {top_outcome.price * 100:.1f}%" if top_outcome else "odds n/a"
+        parts.append(f"{first_market.question} ({odds_note})")
+        parts.append(f"id={first_market.market_id}")
+    if event.url:
+        parts.append(event.url)
+    extra_markets = len(event.markets) - 1 if event.markets else 0
+    if extra_markets > 0:
+        parts.append(f"+{extra_markets} more markets")
+    return " | ".join(parts)
 
 
 def _summarize_events(events: Iterable[EventSummary]) -> str:
     descriptions = [_summarize_event(event) for event in events]
-    return "\n\n".join(descriptions) if descriptions else "No open markets were returned."
+    if not descriptions:
+        return "No open markets were returned."
+    shown = descriptions[:5]
+    lines = shown
+    extra = len(descriptions) - len(shown)
+    if extra > 0:
+        lines.append(f"... {extra} more events.")
+    return "\n".join(lines)
 
 
 def _normalize_market_identifier(market_id: str) -> str:
@@ -100,50 +104,34 @@ def _load_cached_markets() -> List[EventSummary] | None:
 
 
 def _summarize_position(position: PortfolioPosition) -> str:
-    details = f"{position.shares:.2f} shares"
     mark_price = position.mark_price if position.mark_price is not None else position.avg_price
-    if mark_price is not None:
-        details += f" @ {mark_price * 100:.2f}%"
     value = position.estimated_value()
+    bits = []
+    if mark_price is not None:
+        bits.append(f"{mark_price * 100:.1f}%")
     if value is not None:
-        details += f" (~${value:,.2f})"
-    deltas = []
-    if position.avg_price is not None and position.mark_price is not None:
-        delta = (position.mark_price - position.avg_price) * 100
-        deltas.append(f"Δpx {delta:+.2f}pp")
-    if position.pnl is not None:
-        deltas.append(f"PnL ${position.pnl:+,.2f}")
-    if deltas:
-        details += " (" + ", ".join(deltas) + ")"
-    return f"- {position.question} [{position.outcome}] {details}"
+        bits.append(f"${value:,.0f}")
+    return f"{position.question} [{position.outcome}] ({', '.join(bits)})"
 
 
 def _summarize_portfolio(snapshot: PortfolioSnapshot) -> str:
-    lines = [f"Wallet: {snapshot.wallet}"]
-    ledger_bits = []
-    if snapshot.cash_balance is not None:
-        ledger_bits.append(f"cash ${snapshot.cash_balance:,.2f}")
-    if snapshot.realized_pnl is not None:
-        ledger_bits.append(f"realized PnL ${snapshot.realized_pnl:,.2f}")
+    cash = snapshot.cash_balance if snapshot.cash_balance is not None else 0.0
     invested = snapshot.investment_value
     if invested is None and snapshot.unrealized_pnl is not None:
         invested = snapshot.unrealized_pnl
-    if invested is not None:
-        ledger_bits.append(f"invested ${invested:,.2f}")
-    if ledger_bits:
-        lines.append("Ledger: " + ", ".join(ledger_bits))
-    else:
-        lines.append("Ledger: cash/exposure data unavailable from current endpoint.")
-    positions = snapshot.positions[:5]
-    if not positions:
-        lines.append("No open positions.")
-    else:
+    invested = invested or 0.0
+    lines = [
+        f"Wallet: {snapshot.wallet}",
+        f"Cash ${cash:,.0f} | Invested ${invested:,.0f} | Positions {len(snapshot.positions)}",
+    ]
+    positions = snapshot.positions[:2]
+    if positions:
         lines.append("Top positions:")
         for position in positions:
-            lines.append(f"  {_summarize_position(position)}")
+            lines.append(f"- {_summarize_position(position)}")
         extra = len(snapshot.positions) - len(positions)
         if extra > 0:
-            lines.append(f"  ... plus {extra} additional positions.")
+            lines.append(f"... plus {extra} more.")
     return "\n".join(lines)
 
 
@@ -156,6 +144,14 @@ def _append_trade_log(entry: Dict[str, object]) -> None:
 
 
 def _run_fetch_markets(limit: int = 20, offset: int = 0) -> str:
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 20
+    try:
+        offset = int(offset)
+    except Exception:
+        offset = 0
     cached = _load_cached_markets()
     if cached:
         subset = cached[offset : offset + limit] if offset < len(cached) else []

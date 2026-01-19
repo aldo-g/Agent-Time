@@ -36,16 +36,15 @@ def web_search_available() -> bool:
 def _summarize_search_results(results: List[object]) -> str:
     if not results:
         return "No results."
-    lines = []
-    for idx, result in enumerate(results, 1):
+    lines = [f"Results: {len(results)} found."]
+    for idx, result in enumerate(results[:3], 1):
         title = getattr(result, "title", "Untitled result")
         url = getattr(result, "url", "")
-        snippet = getattr(result, "snippet", "")
         lines.append(f"{idx}. {title}")
         if url:
             lines.append(f"   {url}")
-        if snippet:
-            lines.append(f"   {snippet}")
+    if len(results) > 3:
+        lines.append(f"... {len(results) - 3} more.")
     return "\n".join(lines)
 
 
@@ -166,8 +165,23 @@ class _HTMLTextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.parts: List[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:  # noqa: ANN001
+        if tag.lower() in {"script", "style"}:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in {"script", "style"} and self._skip_depth:
+            self._skip_depth -= 1
+
+    def handle_comment(self, data: str) -> None:
+        # Drop comments to avoid analytics snippets
+        return
 
     def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
         cleaned = data.strip()
         if cleaned:
             self.parts.append(cleaned)
@@ -177,10 +191,16 @@ class _HTMLTextExtractor(HTMLParser):
 
 
 def _run_web_scrape(url: str, max_chars: int = 2000) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": "AgentTimeBot/1.0"})
-    with urllib.request.urlopen(request, timeout=10) as response:
-        content_type = response.headers.get("Content-Type", "")
-        raw = response.read()
+    cleaned = (url or "").strip()
+    if not cleaned.lower().startswith(("http://", "https://")):
+        return f"Invalid URL. Provide a full http(s) URL. Got: {cleaned or '<empty>'}"
+    try:
+        request = urllib.request.Request(cleaned, headers={"User-Agent": "AgentTimeBot/1.0"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            content_type = response.headers.get("Content-Type", "")
+            raw = response.read()
+    except Exception as exc:
+        return f"Unable to fetch {cleaned}: {exc}"
     if "text/html" in content_type:
         parser = _HTMLTextExtractor()
         parser.feed(raw.decode("utf-8", errors="ignore"))
