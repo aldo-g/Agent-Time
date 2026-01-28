@@ -31,6 +31,8 @@ RISK_MAX_BET_PCT = float(os.environ.get("RISK_MAX_BET_PCT", "0.05"))
 RISK_MAX_SINGLE_POSITION_PCT = float(os.environ.get("RISK_MAX_SINGLE_POSITION_PCT", "0.2"))
 RISK_MAX_GROSS_EXPOSURE_PCT = float(os.environ.get("RISK_MAX_GROSS_EXPOSURE_PCT", "0.7"))
 KELLY_MULTIPLIER = float(os.environ.get("RISK_KELLY_MULTIPLIER", "0.5"))
+MARKET_INSPECTION_LIMIT = int(os.environ.get("AGENT_MARKET_INSPECTION_LIMIT", "5"))
+_INSPECTED_MARKETS: set[str] = set()
 
 
 def _summarize_event(event: EventSummary) -> str:
@@ -74,6 +76,28 @@ def _normalize_market_identifier(market_id: str) -> str:
     if any(char.isspace() for char in cleaned):
         cleaned = cleaned.split()[0]
     return cleaned
+
+
+def reset_inspected_markets() -> None:
+    """Reset the per-run market inspection tracker."""
+    _INSPECTED_MARKETS.clear()
+
+
+def _enforce_market_limit(market_id: str) -> tuple[bool, str, str | None]:
+    """Allow at most MARKET_INSPECTION_LIMIT distinct markets per run for deep tool calls."""
+    normalized = _normalize_market_identifier(market_id)
+    if normalized in _INSPECTED_MARKETS:
+        return True, normalized, None
+    if len(_INSPECTED_MARKETS) >= MARKET_INSPECTION_LIMIT:
+        inspected_preview = ", ".join(sorted(_INSPECTED_MARKETS)) or "none"
+        return (
+            False,
+            normalized,
+            f"Market limit reached ({MARKET_INSPECTION_LIMIT} distinct markets already inspected: {inspected_preview}). "
+            "Reuse one of those or adjust AGENT_MARKET_INSPECTION_LIMIT.",
+        )
+    _INSPECTED_MARKETS.add(normalized)
+    return True, normalized, None
 
 
 def _is_not_found_error(error: Exception) -> bool:
@@ -143,11 +167,11 @@ def _append_trade_log(entry: Dict[str, object]) -> None:
         handle.write("\n")
 
 
-def _run_fetch_markets(limit: int = 20, offset: int = 0) -> str:
+def _run_fetch_markets(limit: int = 25, offset: int = 0) -> str:
     try:
         limit = int(limit)
     except Exception:
-        limit = 20
+        limit = 25
     try:
         offset = int(offset)
     except Exception:
@@ -172,7 +196,9 @@ def _run_portfolio(wallet: str | None = None, required: bool = False) -> str:
 
 
 def _run_market_details(market_id: str) -> str:
-    normalized = _normalize_market_identifier(market_id)
+    allowed, normalized, msg = _enforce_market_limit(market_id)
+    if not allowed:
+        return msg or "Market limit reached."
     try:
         details = fetch_market_details(normalized)
     except RuntimeError as exc:
@@ -210,7 +236,9 @@ def _run_place_bet(
 ) -> str:
     if amount <= 0:
         raise RuntimeError("amount must be positive.")
-    normalized = _normalize_market_identifier(market_id)
+    allowed, normalized, msg = _enforce_market_limit(market_id)
+    if not allowed:
+        return msg or "Market limit reached."
     try:
         details = fetch_market_details(normalized)
     except RuntimeError as exc:
@@ -310,7 +338,9 @@ def _run_sell_position(
 ) -> str:
     if shares <= 0:
         raise RuntimeError("shares must be positive.")
-    normalized = _normalize_market_identifier(market_id)
+    allowed, normalized, msg = _enforce_market_limit(market_id)
+    if not allowed:
+        return msg or "Market limit reached."
     try:
         details = fetch_market_details(normalized)
     except RuntimeError as exc:
@@ -414,7 +444,9 @@ def _run_limit_order_preview(
     limit_prob: Optional[float] = None,
     answer: Optional[str] = None,
 ) -> str:
-    normalized = _normalize_market_identifier(market_id)
+    allowed, normalized, msg = _enforce_market_limit(market_id)
+    if not allowed:
+        return msg or "Market limit reached."
     try:
         details = fetch_market_details(normalized)
     except RuntimeError as exc:
@@ -507,7 +539,9 @@ def _run_portfolio_analytics(max_positions: int = 5) -> str:
 
 
 def _run_event_timer(market_id: str) -> str:
-    normalized = _normalize_market_identifier(market_id)
+    allowed, normalized, msg = _enforce_market_limit(market_id)
+    if not allowed:
+        return msg or "Market limit reached."
     try:
         details = fetch_market_details(normalized)
     except RuntimeError as exc:
@@ -547,7 +581,9 @@ def _run_risk_gate(
         bankroll, gross_exposure = _estimate_bankroll(snapshot)
     else:
         gross_exposure = 0.0
-    normalized = _normalize_market_identifier(market_id)
+    allowed, normalized, msg = _enforce_market_limit(market_id)
+    if not allowed:
+        return msg or "Market limit reached."
     try:
         details = fetch_market_details(normalized)
     except RuntimeError as exc:
@@ -592,7 +628,9 @@ def _run_risk_gate(
 
 
 def _run_market_history(market_id: str, limit: int = 200) -> str:
-    normalized = _normalize_market_identifier(market_id)
+    allowed, normalized, msg = _enforce_market_limit(market_id)
+    if not allowed:
+        return msg or "Market limit reached."
     try:
         details = fetch_market_details(normalized)
     except RuntimeError as exc:
@@ -631,4 +669,5 @@ __all__ = [
     "_run_portfolio_analytics",
     "_run_risk_gate",
     "_run_sell_position",
+    "reset_inspected_markets",
 ]

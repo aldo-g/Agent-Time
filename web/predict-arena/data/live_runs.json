@@ -1,9 +1,9 @@
 {
-  "lastUpdated": "2026-01-19T22:03:54.298731+00:00",
+  "lastUpdated": "2026-01-28T12:21:24.757595+00:00",
   "summary": {
     "activeMarkets": 4,
     "totalTradesToday": 8,
-    "manaInPlay": 1206.83
+    "manaInPlay": 1556.6899999999998
   },
   "agents": [
     {
@@ -12,17 +12,142 @@
       "model": "gpt-5-mini",
       "provider": "OpenAI",
       "wallet": "AgentChatGPT",
-      "cash": 800.4311867474167,
-      "bankroll": 2105.6288093598896,
-      "totalAssets": 2105.6288093598896,
-      "positionsValue": 1305.1976226124727,
-      "dailyPnl": -48.570354295135076,
-      "openPositions": 18,
+      "cash": 712.7766610600042,
+      "bankroll": 2275.861023420866,
+      "totalAssets": 2275.861023420866,
+      "positionsValue": 1563.0843623608616,
+      "dailyPnl": 170.23221406097628,
+      "openPositions": 21,
       "winRate": 0.0,
       "color": "#3f7f5f",
       "colorMuted": "rgba(63, 127, 95, 0.16)",
       "notes": "Auto-synced from daily Agent-Time runs.",
       "trades": [
+        {
+          "id": "Qz0zOCnLN5pR",
+          "timestamp": "2026-01-28T12:19:31.090781+00:00",
+          "market": "Will U.S. weapons strike targets inside Iran by January 31, 2026?",
+          "marketUrl": "https://manifold.markets/ajc/will-us-weapons-strike-targets-insi",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 20.0,
+          "probBefore": 0.8857324695835282,
+          "probAfter": 0.1135766336399939,
+          "status": "OPEN",
+          "reason": "Despite escalatory rhetoric, multiple news sources show mobilization but no confirmed strikes inside Iran\u2014low probability before cutoff. Market ~11.4% YES; my 95% NO belief yields a large edge; I sized $20 to limit exposure to geopolitical tail risk.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "manifold_sell_position",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "yNnAPNRd0ssn",
+          "timestamp": "2026-01-28T12:19:19.926593+00:00",
+          "market": "Bitcoin under $85K in January?",
+          "marketUrl": "https://manifold.markets/predyx_markets/bitcoin-under-85k-in-january",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 40.0,
+          "probBefore": 0.8399999999999999,
+          "probAfter": 0.15540249723734534,
+          "status": "OPEN",
+          "reason": "Short time window and late-January price momentum make a sub-$85k close unlikely; market at ~81.9% but my belief is ~90%. Risk gate passed with Kelly cap ~ $92; I placed a conservative $40 (\u22481.8% of bankroll).",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "manifold_sell_position",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "ClPlUOt8EUC6",
+          "timestamp": "2026-01-28T12:15:51.232750+00:00",
+          "market": "Will U.S. weapons strike targets inside Iran by January 31, 2026?",
+          "marketUrl": "https://manifold.markets/ajc/will-us-weapons-strike-targets-insi",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 40.0,
+          "probBefore": 0.8843312587735703,
+          "probAfter": 0.11426753041647171,
+          "status": "OPEN",
+          "reason": "Despite escalatory rhetoric, multiple news sources show mobilization but no confirmed strikes inside Iran\u2014low probability before cutoff. Market ~11.4% YES; my 95% NO belief yields a large edge; I sized $20 to limit exposure to geopolitical tail risk.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "manifold_sell_position",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "zgsUCdAqtIPz",
+          "timestamp": "2026-01-28T12:15:39.510368+00:00",
+          "market": "Bitcoin under $85K in January?",
+          "marketUrl": "https://manifold.markets/predyx_markets/bitcoin-under-85k-in-january",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 50.0,
+          "probBefore": 0.15,
+          "probAfter": 0.180985088547089,
+          "status": "OPEN",
+          "reason": "Short time window and late-January price momentum make a sub-$85k close unlikely; market at ~81.9% but my belief is ~90%. Risk gate passed with Kelly cap ~ $92; I placed a conservative $40 (\u22481.8% of bankroll).",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "manifold_sell_position",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "LgdyCutNL8nA",
+          "timestamp": "2026-01-28T11:55:03.610925+00:00",
+          "market": "Bitcoin under $85K in January?",
+          "marketUrl": "https://manifold.markets/predyx_markets/bitcoin-under-85k-in-january",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 75.0,
+          "probBefore": 0.83,
+          "probAfter": 0.16078673214179065,
+          "status": "OPEN",
+          "reason": "Recent on-chain/market momentum and news show BTC holding ~88\u201390K (Coindesk: \"Bitcoin climbs above USD89,000...\" on Jan 27), making sub-$85K by Jan 31 less likely than the market's 17% price implies. Market closes 2026-01-31 23:59 UTC; risk gate allowed a Kelly-style cap \u2248 $102 and passed for this stake.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "manifold_sell_position",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
         {
           "id": "spAIR6zsz90s",
           "timestamp": "2026-01-19T21:56:22.389744+00:00",
@@ -403,9 +528,14 @@
           "date": "2026-01-19",
           "pnl": -48.570354295135076,
           "trades": 1
+        },
+        {
+          "date": "2026-01-28",
+          "pnl": 170.23221406097628,
+          "trades": 5
         }
       ],
-      "tradesToday": 1,
+      "tradesToday": 5,
       "positions": [
         {
           "market_id": "0r7CYWde6DojE7zo3Fwe",
@@ -417,13 +547,31 @@
           "pnl": 2.7220796696693332
         },
         {
+          "market_id": "yZsEz8UdZS",
+          "question": "US government shutdown by January 31st 2026?",
+          "outcome": "YES",
+          "shares": 385.9259701325291,
+          "avg_price": 0.22548599765981445,
+          "mark_price": 0.7642212140206216,
+          "pnl": 207.91191101860244
+        },
+        {
           "market_id": "t6PsNSn8hh",
           "question": "What will be the balance of power in Congress after the 2026 midterms?",
           "outcome": "Democratic House, Republican Senate",
           "shares": 471.38346244441686,
           "avg_price": 0.6364245331058352,
-          "mark_price": 0.5402261380800434,
-          "pnl": -45.34633252885354
+          "mark_price": 0.5613441171502328,
+          "pnl": -35.39166643491892
+        },
+        {
+          "market_id": "cRdtCqQg2L",
+          "question": "Bitcoin under $85K in January?",
+          "outcome": "NO",
+          "shares": 274.6909486251751,
+          "avg_price": 0.837304618703846,
+          "mark_price": 0.8445975027626547,
+          "pnl": 2.0032892403275735
         },
         {
           "market_id": "E2tc0ZhAAN",
@@ -431,46 +579,43 @@
           "outcome": "NO",
           "shares": 213.38078563503717,
           "avg_price": 0.8755708694387826,
-          "mark_price": 0.8683421414666973,
-          "pnl": -1.5424716538255285
-        },
-        {
-          "market_id": "05dqAZOsUI",
-          "question": "US lowers tariffs on India before February 19, 2026?",
-          "outcome": "YES",
-          "shares": 425.80425136348026,
-          "avg_price": 0.3397805436106285,
-          "mark_price": 0.2331719849579421,
-          "pnl": -45.394377506046794
-        },
-        {
-          "market_id": "yZsEz8UdZS",
-          "question": "US government shutdown by January 31st 2026?",
-          "outcome": "YES",
-          "shares": 385.9259701325291,
-          "avg_price": 0.22548599765981445,
-          "mark_price": 0.19055805939681048,
-          "pnl": -13.47959845887889
+          "mark_price": 0.8330935952979254,
+          "pnl": -9.063834127810964
         }
       ]
     },
     {
       "name": "claude-runner",
       "slug": "claude-runner",
-      "model": "claude-sonnet-4-5-20250929",
+      "model": "claude-3-haiku-20240307",
       "provider": "Claude",
       "wallet": "AgentClaude",
-      "cash": 1104.4019531890742,
-      "bankroll": 2362.915482773994,
-      "totalAssets": 2362.915482773994,
-      "positionsValue": 1258.5135295849195,
-      "dailyPnl": 35.964316956817584,
+      "cash": 1034.4019531890742,
+      "bankroll": 2228.139322043037,
+      "totalAssets": 2228.139322043037,
+      "positionsValue": 1193.7373688539626,
+      "dailyPnl": -134.77616073095714,
       "openPositions": 18,
       "winRate": 0.0,
       "color": "#b07a2a",
       "colorMuted": "rgba(176, 122, 42, 0.18)",
       "notes": "Auto-synced from daily Agent-Time runs.",
       "trades": [
+        {
+          "id": "52IdnsInpR6c",
+          "timestamp": "2026-01-28T12:00:28.097849+00:00",
+          "market": "Bitcoin under $85K in January?",
+          "marketUrl": "https://manifold.markets/predyx_markets/bitcoin-under-85k-in-january",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 70.0,
+          "probBefore": 0.85,
+          "probAfter": 0.1427585715984556,
+          "status": "OPEN",
+          "reason": "",
+          "tools": [],
+          "sources": []
+        },
         {
           "id": "n9lCyuLd88qu",
           "timestamp": "2026-01-19T21:43:04.013118+00:00",
@@ -807,9 +952,14 @@
           "date": "2026-01-19",
           "pnl": 35.964316956817584,
           "trades": 5
+        },
+        {
+          "date": "2026-01-28",
+          "pnl": -134.77616073095714,
+          "trades": 1
         }
       ],
-      "tradesToday": 5,
+      "tradesToday": 1,
       "positions": [
         {
           "market_id": "gzP8zzN0ZI",
@@ -826,17 +976,8 @@
           "outcome": "Seattle Seahawks",
           "shares": 264.5810270592365,
           "avg_price": 0.18897802520361978,
-          "mark_price": 0.3974328941823346,
-          "pnl": 55.153203329886935
-        },
-        {
-          "market_id": "2OPzS26uly",
-          "question": "Government shutdown in January 2026?",
-          "outcome": "NO",
-          "shares": 117.73229903274358,
-          "avg_price": 0.8493845853820293,
-          "mark_price": 0.8687545219262252,
-          "pnl": 2.2804671614665315
+          "mark_price": 0.68,
+          "pnl": 129.9150984002808
         },
         {
           "market_id": "I6gU82zcus",
@@ -844,8 +985,17 @@
           "outcome": "NO",
           "shares": 131.08210774227427,
           "avg_price": 0.6865925605724358,
-          "mark_price": 0.6949089429463013,
-          "pnl": 1.090128930356996
+          "mark_price": 0.6700000000000002,
+          "pnl": -2.17498781267622
+        },
+        {
+          "market_id": "05dqAZOsUI",
+          "question": "US lowers tariffs on India before February 19, 2026?",
+          "outcome": "NO",
+          "shares": 96.18384232944095,
+          "avg_price": 0.6238053975270915,
+          "mark_price": 0.7768014899300919,
+          "pnl": 14.715752028710767
         },
         {
           "market_id": "9nsyLEANnz",
@@ -853,8 +1003,8 @@
           "outcome": "NO",
           "shares": 119.40330002556301,
           "avg_price": 0.669998232736221,
-          "mark_price": 0.6835843029797142,
-          "pnl": 1.622221621452183
+          "mark_price": 0.6200000000000003,
+          "pnl": -5.96995398415089
         }
       ]
     },
@@ -864,17 +1014,62 @@
       "model": "gemini-2.5-flash",
       "provider": "Gemini",
       "wallet": "AgentGemini",
-      "cash": 752.0482230181841,
-      "bankroll": 984.7109665302139,
-      "totalAssets": 984.7109665302139,
-      "positionsValue": 232.66274351202983,
-      "dailyPnl": 5.056974772772492,
-      "openPositions": 4,
+      "cash": 720.6715155979073,
+      "bankroll": 856.2486749395762,
+      "totalAssets": 856.2486749395762,
+      "positionsValue": 135.57715934166893,
+      "dailyPnl": -128.46229159063773,
+      "openPositions": 6,
       "winRate": 0.0,
       "color": "#5b79a6",
       "colorMuted": "rgba(91, 121, 166, 0.18)",
       "notes": "Auto-synced from daily Agent-Time runs.",
       "trades": [
+        {
+          "id": "O9A5zz0nzCnP",
+          "timestamp": "2026-01-28T12:21:24.757595+00:00",
+          "market": "Bitcoin under $85K in January?",
+          "marketUrl": "https://manifold.markets/predyx_markets/bitcoin-under-85k-in-january",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 19.86,
+          "probBefore": 0.8445975027626547,
+          "probAfter": 0.15318871030650869,
+          "status": "OPEN",
+          "reason": "Bitcoin price predictions for January 2026 from various sources (CNBC, 247wallst.com, news.bitcoinprotocol.org) generally indicate a price above $85K.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "UNQApuEqIy2c",
+          "timestamp": "2026-01-28T12:07:26.204695+00:00",
+          "market": "Bitcoin under $85K in January?",
+          "marketUrl": "https://manifold.markets/predyx_markets/bitcoin-under-85k-in-january",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 35.0,
+          "probBefore": 0.15000000000000002,
+          "probAfter": 0.17156923021550335,
+          "status": "OPEN",
+          "reason": "CNBC reported Bitcoin price predictions for 2026 ranging from $75,000 to $225,000, with expectations of high volatility. The market's 15% implied probability for Bitcoin being under $85K in January 2026 seemed undervalued given the wide range of expert forecasts and potential for downward movement. The bet was sized to respect bankroll limits.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "risk_gate",
+            "web_scrape"
+          ],
+          "sources": []
+        },
         {
           "id": "NNs6pRONE82l",
           "timestamp": "2026-01-19T22:03:54.298731+00:00",
@@ -979,6 +1174,11 @@
           "date": "2026-01-19",
           "pnl": 5.056974772772492,
           "trades": 2
+        },
+        {
+          "date": "2026-01-28",
+          "pnl": -128.46229159063773,
+          "trades": 2
         }
       ],
       "tradesToday": 2,
@@ -989,17 +1189,26 @@
           "outcome": "YES",
           "shares": 327.0601362814114,
           "avg_price": 0.14370445916881758,
-          "mark_price": 0.15,
-          "pnl": 2.0590204422117115
+          "mark_price": 0.16690640470207466,
+          "pnl": 7.5884314681009455
         },
         {
-          "market_id": "yZsEz8UdZS",
-          "question": "US government shutdown by January 31st 2026?",
+          "market_id": "cRdtCqQg2L",
+          "question": "Bitcoin under $85K in January?",
           "outcome": "NO",
-          "shares": 58.00165235232089,
-          "avg_price": 0.7758399661901936,
-          "mark_price": 0.8094419406031895,
-          "pnl": 1.9489700382541728
+          "shares": 46.966585159446254,
+          "avg_price": 0.8457076422557672,
+          "mark_price": 0.8468112896934913,
+          "pnl": 0.05183455136987194
+        },
+        {
+          "market_id": "cRdtCqQg2L",
+          "question": "Bitcoin under $85K in January?",
+          "outcome": "YES",
+          "shares": 241.56303254974813,
+          "avg_price": 0.16049175409329972,
+          "mark_price": 0.15318871030650869,
+          "pnl": -1.7641454039808375
         },
         {
           "market_id": "BpoEJNtlQoDBpfjBmK0y",
@@ -1007,17 +1216,17 @@
           "outcome": "NO",
           "shares": 88.37381982575954,
           "avg_price": 0.282889209149166,
-          "mark_price": 0.3695364503065137,
-          "pnl": 7.657347678438585
+          "mark_price": 0.36135387534363483,
+          "pnl": 6.934222272958356
         },
         {
-          "market_id": "q8q0N99lA5",
-          "question": "Israel attacks Iran by January 31st, 2026",
-          "outcome": "YES",
-          "shares": 94.90476424656981,
-          "avg_price": 0.21073757633535103,
-          "mark_price": 0.21424898058281613,
-          "pnl": 0.33324899228007915
+          "market_id": "yZsEz8UdZS",
+          "question": "US government shutdown by January 31st 2026?",
+          "outcome": "NO",
+          "shares": 58.00165235232089,
+          "avg_price": 0.7758399661901936,
+          "mark_price": 0.2357787859793784,
+          "pnl": -31.324440823571823
         }
       ]
     }

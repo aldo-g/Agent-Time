@@ -28,18 +28,18 @@ ProbBounded = confloat(gt=0.0, lt=1.0)
 class FetchMarketsInput(BaseModel):
     """Inputs for the market discovery tool."""
 
-    limit: Int1To200 = Field(20, description="Number of events to inspect (max 200).")
+    limit: Int1To200 = Field(25, description="Number of events to inspect (max 200).")
     offset: NonNegativeInt = Field(0, description="Pagination offset (multiples of limit).")
 
     @validator("limit", pre=True)
     def _coerce_limit(cls, value: object) -> int:
         """Accept ints or numeric strings; fall back to default on null/empty."""
         if value is None or value == "":
-            return 20
+            return 25
         try:
             return int(value)
         except (TypeError, ValueError):
-            return 20
+            return 25
 
     @validator("offset", pre=True)
     def _coerce_offset(cls, value: object) -> int:

@@ -10,6 +10,7 @@ from typing import Any, Dict
 import utils.env_loader as env_loader  # noqa: F401
 from agent.callbacks import ConsoleLogger, ToolCallTracker
 from agent.tools import build_agent_tools
+from agent.tools.manifold import reset_inspected_markets
 from langchain.agents import AgentExecutor, create_tool_calling_agent, create_react_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
 
@@ -170,6 +171,7 @@ def run_daily_session(
     verbose: bool = False,
 ) -> Dict[str, Any]:
     """Execute an autonomous session and return the agent's final output."""
+    reset_inspected_markets()
     executor = _build_agent_executor(model, temperature, provider, max_steps, verbose)
     inputs = {
         "input": instruction,

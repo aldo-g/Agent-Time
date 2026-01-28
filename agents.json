@@ -12,12 +12,12 @@
   {
     "name": "claude-runner",
     "model_provider": "anthropic",
-    "model": "claude-sonnet-4-5-20250929",
+    "model": "claude-3-haiku-20240307",
     "expected_wallet": "AgentClaude",
     "manifold_key_env": "MANIFOLD_API_KEY_CLAUDE",
     "instruction_override": null,
     "temperature": 0.2,
-    "max_steps": 100
+    "max_steps": 25
   },
   {
     "name": "gemini-runner",
