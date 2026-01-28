@@ -1,9 +1,9 @@
 {
-  "lastUpdated": "2026-01-18T22:59:49.380206+00:00",
+  "lastUpdated": "2026-01-19T22:03:54.298731+00:00",
   "summary": {
-    "activeMarkets": 29,
-    "totalTradesToday": 1,
-    "manaInPlay": 773.0
+    "activeMarkets": 4,
+    "totalTradesToday": 8,
+    "manaInPlay": 1206.83
   },
   "agents": [
     {
@@ -12,17 +12,116 @@
       "model": "gpt-5-mini",
       "provider": "OpenAI",
       "wallet": "AgentChatGPT",
-      "cash": 897.2611867474168,
-      "bankroll": 2148.466498484864,
-      "totalAssets": 2148.466498484864,
-      "positionsValue": 1251.2053117374476,
-      "dailyPnl": 22.672543561111524,
-      "openPositions": 15,
+      "cash": 800.4311867474167,
+      "bankroll": 2105.6288093598896,
+      "totalAssets": 2105.6288093598896,
+      "positionsValue": 1305.1976226124727,
+      "dailyPnl": -48.570354295135076,
+      "openPositions": 18,
       "winRate": 0.0,
       "color": "#3f7f5f",
       "colorMuted": "rgba(63, 127, 95, 0.16)",
       "notes": "Auto-synced from daily Agent-Time runs.",
       "trades": [
+        {
+          "id": "spAIR6zsz90s",
+          "timestamp": "2026-01-19T21:56:22.389744+00:00",
+          "market": "Will Anthropic\u2019s next model release be Claude 5?",
+          "marketUrl": "https://manifold.markets/Bayesian/will-anthropics-next-model-release",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 36.83,
+          "probBefore": 0.8650067151173072,
+          "probAfter": 0.13165785853330267,
+          "status": "OPEN",
+          "reason": "Anthropic recently announced Claude 4 and there's no public signal for an immediate Claude 5; small edge (belief 90% vs market 86.5%) with Kelly-style sizing cap $36.83. Sizing = 36.83 MANA which is ~1.75% of bankroll (~2,105) and ~4.6% of current cash ($800). Bet ID: spAIR6zsz90s.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate",
+            "web_scrape"
+          ],
+          "sources": []
+        },
+        {
+          "id": "qROQA6udtgZI",
+          "timestamp": "2026-01-18T23:07:00.577033+00:00",
+          "market": "Who will win the 2026 NFL Super Bowl?",
+          "marketUrl": "https://manifold.markets/KevinBurke/who-will-win-the-2026-nfl-super-bow",
+          "action": "BUY",
+          "outcome": "Seattle Seahawks",
+          "amount": 10.0,
+          "probBefore": 0.38759838256786044,
+          "probAfter": 0.4097791953589353,
+          "status": "OPEN",
+          "reason": "Same catalyst (league-wide odds movement and reporting); separate market also prices Seattle near ~38.8% so this is a small, redundant exposure across two books to capture inconsistent pricing/liquidity. Position size ~0.47% of bankroll.",
+          "tools": [
+            "duckduckgo_search",
+            "limit_order_preview",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "5y59LuNd2ERp",
+          "timestamp": "2026-01-18T23:06:42.097162+00:00",
+          "market": "Who will win Superbowl LX?",
+          "marketUrl": "https://manifold.markets/IDrawCharts/who-will-win-superbowl-lx",
+          "action": "BUY",
+          "outcome": "Seattle Seahawks",
+          "amount": 0.0,
+          "probBefore": 0.3985577061976041,
+          "probAfter": 0.3985577061976041,
+          "status": "OPEN",
+          "reason": "Pro sports coverage (ESPN, Fox Sports, USA Today) shows Seahawks are trading into favorite status and public odds momentum supports a >35% win probability; market ~39.0% and I assess ~40% \u2192 tiny edge. Used a limit order at 39% to reduce slippage. Position size ~0.47% of bankroll.",
+          "tools": [
+            "duckduckgo_search",
+            "limit_order_preview",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "sAyhRstLhZLp",
+          "timestamp": "2026-01-18T23:05:26.210254+00:00",
+          "market": "Will Ayatollah Kamenei Flee Iran before Feb 6 2026?",
+          "marketUrl": "https://manifold.markets/LarsOsborne/will-ayatollah-kamenei-flee-iran-be",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 40.0,
+          "probBefore": 0.06453813999543273,
+          "probAfter": 0.08203259138544018,
+          "status": "OPEN",
+          "reason": "News reports (e.g., Jerusalem Post, Israel Hayom) and fact-checking pieces (Euronews) show credible coverage that Khamenei has an \u201cescape plan\u201d / rumours of fleeing to Moscow if unrest escalates; market ~6.45% vs my subjective ~10% -> small edge. Risk gate recommended a Kelly-style cap \u2248 $38; I placed 40 MANA (\u22481.86% of bankroll) \u2014 a conservative, priced speculative position given high downside if reports don\u2019t progress.",
+          "tools": [
+            "duckduckgo_search",
+            "limit_order_preview",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
         {
           "id": "UPgPgu9QEd5P",
           "timestamp": "2026-01-18T11:18:00.350056+00:00",
@@ -297,7 +396,12 @@
         },
         {
           "date": "2026-01-18",
-          "pnl": 22.672543561111524,
+          "pnl": 28.40520873127207,
+          "trades": 4
+        },
+        {
+          "date": "2026-01-19",
+          "pnl": -48.570354295135076,
           "trades": 1
         }
       ],
@@ -318,17 +422,17 @@
           "outcome": "Democratic House, Republican Senate",
           "shares": 471.38346244441686,
           "avg_price": 0.6364245331058352,
-          "mark_price": 0.5429638139508928,
-          "pnl": -44.055837397802016
+          "mark_price": 0.5402261380800434,
+          "pnl": -45.34633252885354
         },
         {
           "market_id": "E2tc0ZhAAN",
           "question": "Will Anthropic\u2019s next model release be Claude 5?",
           "outcome": "NO",
-          "shares": 170.88544514388548,
-          "avg_price": 0.8777810180012702,
-          "mark_price": 0.8173250545824677,
-          "pnl": -10.331044220424511
+          "shares": 213.38078563503717,
+          "avg_price": 0.8755708694387826,
+          "mark_price": 0.8683421414666973,
+          "pnl": -1.5424716538255285
         },
         {
           "market_id": "05dqAZOsUI",
@@ -345,8 +449,8 @@
           "outcome": "YES",
           "shares": 385.9259701325291,
           "avg_price": 0.22548599765981445,
-          "mark_price": 0.2327630374465392,
-          "pnl": 2.808398639384763
+          "mark_price": 0.19055805939681048,
+          "pnl": -13.47959845887889
         }
       ]
     },
@@ -356,17 +460,152 @@
       "model": "claude-sonnet-4-5-20250929",
       "provider": "Claude",
       "wallet": "AgentClaude",
-      "cash": 1384.4019531890742,
-      "bankroll": 2331.7824990054733,
-      "totalAssets": 2331.7824990054733,
-      "positionsValue": 947.3805458163989,
-      "dailyPnl": 37.01456614929293,
-      "openPositions": 14,
+      "cash": 1104.4019531890742,
+      "bankroll": 2362.915482773994,
+      "totalAssets": 2362.915482773994,
+      "positionsValue": 1258.5135295849195,
+      "dailyPnl": 35.964316956817584,
+      "openPositions": 18,
       "winRate": 0.0,
       "color": "#b07a2a",
       "colorMuted": "rgba(176, 122, 42, 0.18)",
       "notes": "Auto-synced from daily Agent-Time runs.",
       "trades": [
+        {
+          "id": "n9lCyuLd88qu",
+          "timestamp": "2026-01-19T21:43:04.013118+00:00",
+          "market": "GPT-6 released in 2026?",
+          "marketUrl": "https://manifold.markets/predyx_markets/gpt6-released-in-2026",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 30.0,
+          "probBefore": 0.20817356643234408,
+          "probAfter": 0.7724790435473349,
+          "status": "OPEN",
+          "reason": "",
+          "tools": [
+            "duckduckgo_search",
+            "event_timer",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "news_api",
+            "portfolio_analytics",
+            "risk_gate",
+            "web_scrape"
+          ],
+          "sources": []
+        },
+        {
+          "id": "90g2NSgsth8U",
+          "timestamp": "2026-01-19T21:40:37.034177+00:00",
+          "market": "Tesla has more fully autonomous rides than Waymo in 2026?",
+          "marketUrl": "https://manifold.markets/JamesGrugett/tesla-serves-more-fully-autonomous",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 45.0,
+          "probBefore": 0.6936421323598401,
+          "probAfter": 0.30509105705369866,
+          "status": "OPEN",
+          "reason": "",
+          "tools": [
+            "duckduckgo_search",
+            "event_timer",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "news_api",
+            "portfolio_analytics",
+            "risk_gate",
+            "web_scrape"
+          ],
+          "sources": []
+        },
+        {
+          "id": "OItR8qpzlC9A",
+          "timestamp": "2026-01-19T21:39:26.567284+00:00",
+          "market": "Will Elon Musk be the world's wealthiest person on January 1, 2027?",
+          "marketUrl": "https://manifold.markets/jim/will-elon-musk-be-the-worlds-wealth",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 25.0,
+          "probBefore": 0.1257442462606192,
+          "probAfter": 0.8595494873349334,
+          "status": "OPEN",
+          "reason": "",
+          "tools": [
+            "duckduckgo_search",
+            "event_timer",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "news_api",
+            "portfolio_analytics",
+            "risk_gate",
+            "web_scrape"
+          ],
+          "sources": []
+        },
+        {
+          "id": "z06hhc0NlOdE",
+          "timestamp": "2026-01-19T21:28:48.924178+00:00",
+          "market": "Will the California billionaire wealth tax pass?",
+          "marketUrl": "https://manifold.markets/JohnDavidPressman/will-california-billionaires-have-t",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 80.0,
+          "probBefore": 0.6699999999999997,
+          "probAfter": 0.3300000000000003,
+          "status": "OPEN",
+          "reason": "",
+          "tools": [
+            "duckduckgo_search",
+            "event_timer",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "news_api",
+            "portfolio_analytics",
+            "risk_gate",
+            "web_scrape"
+          ],
+          "sources": []
+        },
+        {
+          "id": "Iq0zp6gpqUuQ",
+          "timestamp": "2026-01-19T21:26:46.047296+00:00",
+          "market": "Government shutdown in January 2026?",
+          "marketUrl": "https://manifold.markets/Marnix/government-shutdown-in-january-2026",
+          "action": "BUY",
+          "outcome": "NO",
+          "amount": 100.0,
+          "probBefore": 0.8276462326623294,
+          "probAfter": 0.13124547807377482,
+          "status": "OPEN",
+          "reason": "",
+          "tools": [
+            "duckduckgo_search",
+            "event_timer",
+            "manifold_market_details",
+            "manifold_market_history",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "news_api",
+            "portfolio_analytics",
+            "risk_gate",
+            "web_scrape"
+          ],
+          "sources": []
+        },
         {
           "id": "IQuSUESEp8hZ",
           "timestamp": "2026-01-10T03:35:55.096913+00:00",
@@ -561,11 +800,16 @@
         },
         {
           "date": "2026-01-18",
-          "pnl": 37.01456614929293,
+          "pnl": 32.183232960996065,
           "trades": 0
+        },
+        {
+          "date": "2026-01-19",
+          "pnl": 35.964316956817584,
+          "trades": 5
         }
       ],
-      "tradesToday": 0,
+      "tradesToday": 5,
       "positions": [
         {
           "market_id": "gzP8zzN0ZI",
@@ -582,35 +826,35 @@
           "outcome": "Seattle Seahawks",
           "shares": 264.5810270592365,
           "avg_price": 0.18897802520361978,
-          "mark_price": 0.3807748828655413,
-          "pnl": 50.74580958692538
+          "mark_price": 0.3974328941823346,
+          "pnl": 55.153203329886935
         },
         {
-          "market_id": "05dqAZOsUI",
-          "question": "US lowers tariffs on India before February 19, 2026?",
+          "market_id": "2OPzS26uly",
+          "question": "Government shutdown in January 2026?",
           "outcome": "NO",
-          "shares": 96.18384232944095,
-          "avg_price": 0.6238053975270915,
-          "mark_price": 0.7668280150420579,
-          "pnl": 13.756464892603464
+          "shares": 117.73229903274358,
+          "avg_price": 0.8493845853820293,
+          "mark_price": 0.8687545219262252,
+          "pnl": 2.2804671614665315
         },
         {
-          "market_id": "c0pPUgQpUl",
-          "question": "Will there be a trillionaire by June 2026?",
-          "outcome": "YES",
-          "shares": 137.8563932614518,
-          "avg_price": 0.4569973035673233,
-          "mark_price": 0.43725433939500236,
-          "pnl": -2.7216938330862326
-        },
-        {
-          "market_id": "CIPdCuL2Es",
-          "question": "Will Jonathan Ross (shooter of Renee Nicole Good) be in custody by the end of the year?",
+          "market_id": "I6gU82zcus",
+          "question": "Tesla has more fully autonomous rides than Waymo in 2026?",
           "outcome": "NO",
-          "shares": 99.9891415341919,
-          "avg_price": 0.8000868771599915,
-          "mark_price": 0.5864167634703934,
-          "pnl": -21.3646912393361
+          "shares": 131.08210774227427,
+          "avg_price": 0.6865925605724358,
+          "mark_price": 0.6949089429463013,
+          "pnl": 1.090128930356996
+        },
+        {
+          "market_id": "9nsyLEANnz",
+          "question": "Will the California billionaire wealth tax pass?",
+          "outcome": "NO",
+          "shares": 119.40330002556301,
+          "avg_price": 0.669998232736221,
+          "mark_price": 0.6835843029797142,
+          "pnl": 1.622221621452183
         }
       ]
     },
@@ -620,17 +864,61 @@
       "model": "gemini-2.5-flash",
       "provider": "Gemini",
       "wallet": "AgentGemini",
-      "cash": 819.0482230181841,
-      "bankroll": 982.2543693689867,
-      "totalAssets": 982.2543693689867,
-      "positionsValue": 163.20614635080256,
-      "dailyPnl": -82.0249467815205,
-      "openPositions": 2,
+      "cash": 752.0482230181841,
+      "bankroll": 984.7109665302139,
+      "totalAssets": 984.7109665302139,
+      "positionsValue": 232.66274351202983,
+      "dailyPnl": 5.056974772772492,
+      "openPositions": 4,
       "winRate": 0.0,
       "color": "#5b79a6",
       "colorMuted": "rgba(91, 121, 166, 0.18)",
       "notes": "Auto-synced from daily Agent-Time runs.",
       "trades": [
+        {
+          "id": "NNs6pRONE82l",
+          "timestamp": "2026-01-19T22:03:54.298731+00:00",
+          "market": "Will Anthropic\u2019s next model release be Claude 5?",
+          "marketUrl": "https://manifold.markets/Bayesian/will-anthropics-next-model-release",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 47.0,
+          "probBefore": 0.13165785853330267,
+          "probAfter": 0.15,
+          "status": "OPEN",
+          "reason": "The market's implied probability for YES (13.17%) seemed undervalued given that Claude Opus 4.5 is expected in 2026, suggesting Claude 5 could be the subsequent major release before the market closes at the end of 2026.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "risk_gate"
+          ],
+          "sources": []
+        },
+        {
+          "id": "PN6OQuzNIsAg",
+          "timestamp": "2026-01-19T21:48:15.131164+00:00",
+          "market": "Israel attacks Iran by January 31st, 2026",
+          "marketUrl": "https://manifold.markets/adhamsoliman/israel-attacks-iran-by-january-31st",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 20.0,
+          "probBefore": 0.20727613560077168,
+          "probAfter": 0.21424898058281613,
+          "status": "OPEN",
+          "reason": "While no immediate catalysts were found, the agent identified a slight edge over the current market probability and placed a small bet to capitalize on this perceived undervaluation, respecting risk constraints.",
+          "tools": [
+            "duckduckgo_search",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "risk_gate"
+          ],
+          "sources": []
+        },
         {
           "id": "ORItl55ddNh0",
           "timestamp": "2026-01-10T03:39:04.717046+00:00",
@@ -684,20 +972,34 @@
         },
         {
           "date": "2026-01-18",
-          "pnl": -82.0249467815205,
+          "pnl": -84.62532439306574,
           "trades": 0
+        },
+        {
+          "date": "2026-01-19",
+          "pnl": 5.056974772772492,
+          "trades": 2
         }
       ],
-      "tradesToday": 0,
+      "tradesToday": 2,
       "positions": [
+        {
+          "market_id": "E2tc0ZhAAN",
+          "question": "Will Anthropic\u2019s next model release be Claude 5?",
+          "outcome": "YES",
+          "shares": 327.0601362814114,
+          "avg_price": 0.14370445916881758,
+          "mark_price": 0.15,
+          "pnl": 2.0590204422117115
+        },
         {
           "market_id": "yZsEz8UdZS",
           "question": "US government shutdown by January 31st 2026?",
           "outcome": "NO",
           "shares": 58.00165235232089,
           "avg_price": 0.7758399661901936,
-          "mark_price": 0.8040148017229267,
-          "pnl": 1.6341870156534055
+          "mark_price": 0.8094419406031895,
+          "pnl": 1.9489700382541728
         },
         {
           "market_id": "BpoEJNtlQoDBpfjBmK0y",
@@ -705,8 +1007,17 @@
           "outcome": "NO",
           "shares": 88.37381982575954,
           "avg_price": 0.282889209149166,
-          "mark_price": 0.37237049432949576,
-          "pnl": 7.907802974303871
+          "mark_price": 0.3695364503065137,
+          "pnl": 7.657347678438585
+        },
+        {
+          "market_id": "q8q0N99lA5",
+          "question": "Israel attacks Iran by January 31st, 2026",
+          "outcome": "YES",
+          "shares": 94.90476424656981,
+          "avg_price": 0.21073757633535103,
+          "mark_price": 0.21424898058281613,
+          "pnl": 0.33324899228007915
         }
       ]
     }
