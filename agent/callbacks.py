@@ -13,16 +13,22 @@ class ToolCallTracker(BaseCallbackHandler):
     def __init__(self) -> None:
         self.successful_tools: List[str] = []
         self.failed_tools: List[str] = []
+        self.trade_outputs: List[str] = []
+        self.failed_tool_errors: List[str] = []
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:  # noqa: ANN401
         name = self._extract_tool_name(kwargs)
         if name:
             self.successful_tools.append(name)
+            if name in {"manifold_place_bet", "manifold_sell_position"} and output is not None:
+                self.trade_outputs.append(str(output))
 
     def on_tool_error(self, error: Exception | KeyboardInterrupt, **kwargs: Any) -> None:
         name = self._extract_tool_name(kwargs)
         if name:
             self.failed_tools.append(name)
+            err_text = str(error).strip() or error.__class__.__name__
+            self.failed_tool_errors.append(f"{name}: {err_text}")
 
     @staticmethod
     def _extract_tool_name(kwargs: dict[str, Any]) -> Optional[str]:

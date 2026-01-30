@@ -93,7 +93,8 @@ def _build_prompt() -> ChatPromptTemplate:
         answers or odds for a market, and once you have justified a trade (including bankroll checks and catalysts) immediately call
         `manifold_place_bet` to execute it before moving on. Make exactly one tool call at a time, then wait for its result before
         issuing another call—never batch or request multiple tools simultaneously. Do not leave actionable trades as suggestions—either submit
-        them or explain why they were rejected. When you are satisfied, provide a final summary with the following format:
+        them or explain why they were rejected. If you make no trades, state a clear reason using a line that begins with "No-Trade Reason -".
+        When you are satisfied, provide a final summary with the following format:
         1) A short paragraph beginning with "Summary -" describing what was accomplished.
         2) For each executed trade, include lines formatted exactly as "Trade - <market and action>" and on the next line "Reason - <concise justification>".
         Mention remaining cash or pending research after the trade list if relevant.
@@ -186,6 +187,8 @@ def run_daily_session(
         result["tool_calls"] = tracker.successful_tools
         result["tool_calls_unique"] = sorted(set(tracker.successful_tools))
         result["tool_call_failures"] = tracker.failed_tools
+        result["captured_trades"] = tracker.trade_outputs
+        result["tool_call_errors"] = tracker.failed_tool_errors
     return result
 
 

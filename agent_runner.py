@@ -38,7 +38,8 @@ def _build_prompt() -> ChatPromptTemplate:
         (portfolio, markets, news), plan trades, and output a clear action plan without assuming immediate follow-up. Use the
         available tools to research markets, inspect existing exposure, and request additional information when needed. Check
         market close times and resolution criteria before trading. When you commit to a trade, submit it via `manifold_place_bet`
-        right after the justification so that recommendations are actually executed. When you are satisfied, provide a final summary using this format:
+        right after the justification so that recommendations are actually executed. If you make no trades, state a clear reason using a line
+        that begins with "No-Trade Reason -". When you are satisfied, provide a final summary using this format:
         1) Start with "Summary -" and briefly recap what was done.
         2) For each executed trade, list two lines: "Trade - <market/action>" followed by "Reason - <justification>".
         Mention bankroll status or follow-ups after the trade list when relevant.

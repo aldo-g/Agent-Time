@@ -274,6 +274,7 @@ def _print_session_summary(
         label = PROVIDER_LABELS.get(record["provider"].lower(), record["agent"])
         trades = record.get("trades") or []
         tool_calls = record.get("tool_calls") or []
+        tool_errors = record.get("tool_errors") or []
         status = "success" if record.get("success") else "failed"
         error = record.get("error")
         no_trade_reason = record.get("no_trade_reason")
@@ -290,6 +291,8 @@ def _print_session_summary(
             continue
         if tool_calls:
             print(f"{label} tools used: {', '.join(tool_calls)}")
+        if tool_errors:
+            print(f"{label} tool errors: {', '.join(tool_errors)}")
 
 
 def run_multi_agent(
@@ -314,6 +317,8 @@ def run_multi_agent(
         output: str | Dict[str, Any] | None = None
         error: str | None = None
         tool_calls = None
+        captured_trades = None
+        tool_errors = None
         portfolio_snapshot = None
         portfolio_error = None
         with (
@@ -334,6 +339,8 @@ def run_multi_agent(
                     )
                     output = result.get("output") if isinstance(result, dict) else result
                     tool_calls = result.get("tool_calls_unique") if isinstance(result, dict) else None
+                    captured_trades = result.get("captured_trades") if isinstance(result, dict) else None
+                    tool_errors = result.get("tool_call_errors") if isinstance(result, dict) else None
                     success = True
                     error = None  # clear any previous attempt errors
                     break
@@ -381,12 +388,19 @@ def run_multi_agent(
             "output": output,
             "error": None if success else error,
             "tool_calls": tool_calls,
+            "captured_trades": captured_trades,
+            "tool_errors": tool_errors,
             "portfolio": portfolio_snapshot,
             "portfolio_error": portfolio_error,
         }
         _persist_result(record, results_path)
         trades = _parse_trades_from_output(output)
+        if captured_trades:
+            for entry in captured_trades:
+                trades.extend(_parse_trades_from_output(entry))
         no_trade_reason = _extract_no_trade_reason(output) if success and not trades else None
+        if success and not trades and not no_trade_reason:
+            no_trade_reason = "Agent did not provide a reason for no trades."
         record_summary = {
             "agent": cfg.name,
             "provider": cfg.model_provider,
@@ -395,6 +409,7 @@ def run_multi_agent(
             "trades": trades,
             "no_trade_reason": no_trade_reason,
             "tool_calls": tool_calls,
+            "tool_errors": tool_errors,
         }
         session_records.append(record_summary)
         if success:
