@@ -1,9 +1,9 @@
 {
-  "lastUpdated": "2026-01-30T06:23:20.750580+00:00",
+  "lastUpdated": "2026-01-30T22:06:50.017370+00:00",
   "summary": {
     "activeMarkets": 19,
-    "totalTradesToday": 3,
-    "manaInPlay": 2371.4199999999996
+    "totalTradesToday": 4,
+    "manaInPlay": 2411.9999999999995
   },
   "agents": [
     {
@@ -12,12 +12,12 @@
       "model": "gpt-5-mini",
       "provider": "OpenAI",
       "wallet": "AgentChatGPT",
-      "cash": 711.3954409846198,
-      "bankroll": 2412.114316316784,
-      "totalAssets": 2412.114316316784,
-      "positionsValue": 1700.7188753321643,
-      "dailyPnl": -7.55060751027122,
-      "openPositions": 23,
+      "cash": 709.3954409846198,
+      "bankroll": 2490.7497268964216,
+      "totalAssets": 2490.7497268964216,
+      "positionsValue": 1781.354285911802,
+      "dailyPnl": 71.08480306936644,
+      "openPositions": 24,
       "winRate": 0.0,
       "color": "#3f7f5f",
       "colorMuted": "rgba(63, 127, 95, 0.16)",
@@ -656,7 +656,7 @@
         },
         {
           "date": "2026-01-30",
-          "pnl": -7.55060751027122,
+          "pnl": 71.08480306936644,
           "trades": 1
         }
       ],
@@ -675,10 +675,10 @@
           "market_id": "yZsEz8UdZS",
           "question": "US government shutdown by January 31st 2026?",
           "outcome": "YES",
-          "shares": 485.54255465014285,
-          "avg_price": 0.3080946596404636,
-          "mark_price": 0.6474165795268322,
-          "pnl": 164.7552318304185
+          "shares": 486.96900368939623,
+          "avg_price": 0.30932431961097734,
+          "mark_price": 0.8842110936848685,
+          "pnl": 279.95203960497383
         },
         {
           "market_id": "t6PsNSn8hh",
@@ -686,8 +686,8 @@
           "outcome": "Democratic House, Republican Senate",
           "shares": 471.38346244441686,
           "avg_price": 0.6364245331058352,
-          "mark_price": 0.5638346704282678,
-          "pnl": -34.21766080731647
+          "mark_price": 0.5657659776395456,
+          "pnl": -33.30727452702048
         },
         {
           "market_id": "E2tc0ZhAAN",
@@ -695,8 +695,8 @@
           "outcome": "NO",
           "shares": 213.38078563503717,
           "avg_price": 0.8755708694387826,
-          "mark_price": 0.891445194652332,
-          "pnl": 3.3872759854932433
+          "mark_price": 0.8688900904545713,
+          "pnl": -1.4255498683050456
         },
         {
           "market_id": "IPuU8qhIO8",
@@ -704,8 +704,8 @@
           "outcome": "NO",
           "shares": 135.53475433815765,
           "avg_price": 0.8853817648911022,
-          "mark_price": 0.8803819217094252,
-          "pnl": -0.6776525173579062
+          "mark_price": 0.9770107899313265,
+          "pnl": 12.418917399071697
         }
       ]
     },
@@ -716,10 +716,10 @@
       "provider": "Claude",
       "wallet": "AgentClaude",
       "cash": 991.8842703695644,
-      "bankroll": 2455.414158321914,
-      "totalAssets": 2455.414158321914,
-      "positionsValue": 1463.5298879523493,
-      "dailyPnl": 23.710371070940255,
+      "bankroll": 2343.430772659859,
+      "totalAssets": 2343.430772659859,
+      "positionsValue": 1351.5465022902947,
+      "dailyPnl": -88.27301459111459,
       "openPositions": 21,
       "winRate": 0.0,
       "color": "#b07a2a",
@@ -1198,7 +1198,7 @@
         },
         {
           "date": "2026-01-30",
-          "pnl": 23.710371070940255,
+          "pnl": -88.27301459111459,
           "trades": 1
         }
       ],
@@ -1219,17 +1219,17 @@
           "outcome": "Seattle Seahawks",
           "shares": 264.5810270592365,
           "avg_price": 0.18897802520361978,
-          "mark_price": 0.6985074057395229,
-          "pnl": 134.81180681904578
+          "mark_price": 0.693648671680354,
+          "pnl": 133.5262779714632
         },
         {
-          "market_id": "0IUCA5s8EN",
-          "question": "Will the US strike Iran by the end of February?",
-          "outcome": "NO",
-          "shares": 296.4203556815605,
-          "avg_price": 0.40483049729862014,
-          "mark_price": 0.4999999999999999,
-          "pnl": 28.21017784078022
+          "market_id": "yZsEz8UdZS",
+          "question": "US government shutdown by January 31st 2026?",
+          "outcome": "YES",
+          "shares": 129.64014630559723,
+          "avg_price": 0.44482887335393084,
+          "mark_price": 0.8813814054982008,
+          "pnl": 56.59473413726209
         },
         {
           "market_id": "t6psRh6gu9",
@@ -1237,8 +1237,8 @@
           "outcome": "YES",
           "shares": 149.0115963839744,
           "avg_price": 0.6710887100512575,
-          "mark_price": 0.6730175670733263,
-          "pnl": 0.2874220640549104
+          "mark_price": 0.6724721124836922,
+          "pnl": 0.2061430048985728
         },
         {
           "market_id": "I6gU82zcus",
@@ -1246,8 +1246,8 @@
           "outcome": "NO",
           "shares": 131.08210774227427,
           "avg_price": 0.6865925605724358,
-          "mark_price": 0.66,
-          "pnl": -3.485808890098978
+          "mark_price": 0.6485091096553839,
+          "pnl": -4.9920590163066105
         }
       ]
     },
@@ -1257,17 +1257,41 @@
       "model": "gemini-2.5-flash",
       "provider": "Gemini",
       "wallet": "AgentGemini",
-      "cash": 843.53961534053,
-      "bankroll": 1038.7694546465705,
-      "totalAssets": 1038.7694546465705,
-      "positionsValue": 195.2298393060406,
-      "dailyPnl": 4.62508091931727,
-      "openPositions": 7,
+      "cash": 824.95961534053,
+      "bankroll": 1031.1654048254459,
+      "totalAssets": 1031.1654048254459,
+      "positionsValue": 206.2057894849159,
+      "dailyPnl": -2.9789689018073204,
+      "openPositions": 8,
       "winRate": 0.0,
       "color": "#5b79a6",
       "colorMuted": "rgba(91, 121, 166, 0.18)",
       "notes": "Auto-synced from daily Agent-Time runs.",
       "trades": [
+        {
+          "id": "y95PgqOUUqnd",
+          "timestamp": "2026-01-30T22:06:50.017370+00:00",
+          "market": "Will Polymarket, Kalshi, and Manifold all resolve the same way on their shutdown markets?",
+          "marketUrl": "https://manifold.markets/bens/will-polymarket-kalshi-and-manifold",
+          "action": "BUY",
+          "outcome": "YES",
+          "amount": 18.58,
+          "probBefore": 0.8636864826663473,
+          "probAfter": 0.8653103357029881,
+          "status": "OPEN",
+          "reason": "The agent identified a 3.6% edge (90% belief vs 86.4% market probability) and the bet was sized according to Kelly-style recommendations, passing the risk gate. Remaining cash: $825.42.",
+          "tools": [
+            "duckduckgo_search",
+            "event_timer",
+            "manifold_market_details",
+            "manifold_markets",
+            "manifold_place_bet",
+            "manifold_portfolio",
+            "portfolio_analytics",
+            "risk_gate"
+          ],
+          "sources": []
+        },
         {
           "id": "5Rq0RIqZIpgC",
           "timestamp": "2026-01-30T06:23:20.750580+00:00",
@@ -1496,11 +1520,11 @@
         },
         {
           "date": "2026-01-30",
-          "pnl": 4.62508091931727,
-          "trades": 1
+          "pnl": -2.9789689018073204,
+          "trades": 2
         }
       ],
-      "tradesToday": 1,
+      "tradesToday": 2,
       "positions": [
         {
           "market_id": "yZsEz8UdZS",
@@ -1508,26 +1532,8 @@
           "outcome": "YES",
           "shares": 209.48344905023077,
           "avg_price": 0.4475125162080637,
-          "mark_price": 0.6474165795268322,
-          "pnl": 41.876592663171344
-        },
-        {
-          "market_id": "0IUCA5s8EN",
-          "question": "Will the US strike Iran by the end of February?",
-          "outcome": "NO",
-          "shares": 103.88,
-          "avg_price": 0.5,
-          "mark_price": 0.4999999999999999,
-          "pnl": -1.1532996779806126e-14
-        },
-        {
-          "market_id": "yZsEz8UdZS",
-          "question": "US government shutdown by January 31st 2026?",
-          "outcome": "NO",
-          "shares": 116.00330470464178,
-          "avg_price": 0.7758399661901936,
-          "mark_price": 0.3525834204731678,
-          "pnl": -49.09915804104628
+          "mark_price": 0.8787840977284782,
+          "pnl": 90.3442583742442
         },
         {
           "market_id": "E2tc0ZhAAN",
@@ -1535,8 +1541,8 @@
           "outcome": "YES",
           "shares": 327.0601362814114,
           "avg_price": 0.14370445916881758,
-          "mark_price": 0.108554805347668,
-          "pnl": -11.496050568989617
+          "mark_price": 0.13110990954542864,
+          "pnl": -4.1191751162285835
         },
         {
           "market_id": "BpoEJNtlQoDBpfjBmK0y",
@@ -1544,8 +1550,26 @@
           "outcome": "NO",
           "shares": 88.37381982575954,
           "avg_price": 0.282889209149166,
-          "mark_price": 0.33999999999999986,
-          "pnl": 5.047098740758229
+          "mark_price": 0.33999999999999975,
+          "pnl": 5.047098740758219
+        },
+        {
+          "market_id": "0IUCA5s8EN",
+          "question": "Will the US strike Iran by the end of February?",
+          "outcome": "NO",
+          "shares": 103.88,
+          "avg_price": 0.5,
+          "mark_price": 0.18246927343928898,
+          "pnl": -32.985091875126656
+        },
+        {
+          "market_id": "5ZgQ0pLzI0",
+          "question": "Will Polymarket, Kalshi, and Manifold all resolve the same way on their shutdown markets?",
+          "outcome": "YES",
+          "shares": 21.492167595250976,
+          "avg_price": 0.864500982400004,
+          "mark_price": 0.8636864826663473,
+          "pnl": -0.01750536478203621
         }
       ]
     }

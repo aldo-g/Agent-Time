@@ -19,6 +19,7 @@ MAX_API_RETRIES = int(os.environ.get("MANIFOLD_API_RETRIES", "2"))
 RETRY_BACKOFF_SECONDS = float(os.environ.get("MANIFOLD_API_RETRY_BACKOFF", "0.6"))
 TRANSIENT_HTTP_CODES = {429, 502, 503, 504}
 API_TIMEOUT_SECONDS = float(os.environ.get("MANIFOLD_API_TIMEOUT", "20"))
+ALT_MANIFOLD_API_ROOT = "https://manifold.markets/api/v0"
 
 
 @dataclass
@@ -186,7 +187,7 @@ def sell_position(
     }
     if answer_id:
         body["answerId"] = answer_id
-    payload = _api_request("/sell", method="POST", body=body)
+    payload = _api_request(f"/market/{urllib.parse.quote(resolved_id, safe='')}/sell", method="POST", body=body)
     if not isinstance(payload, dict):
         raise RuntimeError("Unexpected response from Manifold sell endpoint.")
     bet_id = payload.get("betId") or payload.get("id")
@@ -241,44 +242,67 @@ def _fetch_market_payload(identifier: str) -> Dict[str, object]:
 
 
 def _api_request(path: str, *, method: str = "GET", body: object | None = None) -> object:
-    url = _build_url(path)
-    headers = _auth_headers()
-    data_bytes = None
-    if body is not None:
-        if isinstance(body, (bytes, bytearray)):
-            data_bytes = bytes(body)
-        else:
-            data_text = json.dumps(body)
-            data_bytes = data_text.encode("utf-8")
-    request = urllib.request.Request(url, data=data_bytes, headers=headers, method=method.upper())
-    for attempt in range(MAX_API_RETRIES + 1):
-        try:
-            with urllib.request.urlopen(request, timeout=API_TIMEOUT_SECONDS) as response:
-                if response.status != 200:
-                    raise urllib.error.HTTPError(
-                        url=url,
-                        code=response.status,
-                        msg=response.reason,
-                        hdrs=response.headers,
-                        fp=response,
-                    )
-                return json.load(response)
-        except urllib.error.HTTPError as exc:
-            detail = _read_error_body(exc)
-            if exc.code in TRANSIENT_HTTP_CODES and attempt < MAX_API_RETRIES:
-                time.sleep(RETRY_BACKOFF_SECONDS * (2**attempt))
-                continue
-            raise RuntimeError(f"Manifold API request failed ({exc.code} {exc.reason}): {detail}") from exc
-        except urllib.error.URLError as exc:
-            if attempt < MAX_API_RETRIES:
-                time.sleep(RETRY_BACKOFF_SECONDS * (2**attempt))
-                continue
-            raise RuntimeError(f"Manifold API request failed (URLError): {exc}") from exc
+    roots = [MANIFOLD_API_ROOT]
+    if MANIFOLD_API_ROOT.startswith("https://api.manifold.markets") and ALT_MANIFOLD_API_ROOT not in roots:
+        roots.append(ALT_MANIFOLD_API_ROOT)
+    last_error: Exception | None = None
+    redirect_codes = {301, 302, 303, 307, 308}
+    for root in roots:
+        url = _build_url(path, root)
+        headers = _auth_headers()
+        data_bytes = None
+        if body is not None:
+            if isinstance(body, (bytes, bytearray)):
+                data_bytes = bytes(body)
+            else:
+                data_text = json.dumps(body)
+                data_bytes = data_text.encode("utf-8")
+        attempt = 0
+        redirects = 0
+        while True:
+            request = urllib.request.Request(url, data=data_bytes, headers=headers, method=method.upper())
+            try:
+                with urllib.request.urlopen(request, timeout=API_TIMEOUT_SECONDS) as response:
+                    if response.status != 200:
+                        raise urllib.error.HTTPError(
+                            url=url,
+                            code=response.status,
+                            msg=response.reason,
+                            hdrs=response.headers,
+                            fp=response,
+                        )
+                    return json.load(response)
+            except urllib.error.HTTPError as exc:
+                location = exc.headers.get("Location") if hasattr(exc, "headers") else None
+                detail = _read_error_body(exc)
+                last_error = RuntimeError(f"Manifold API request failed ({exc.code} {exc.reason}): {detail}")
+                if exc.code in redirect_codes and location and redirects < 5:
+                    url = location
+                    redirects += 1
+                    continue
+                if exc.code == 404 and root != roots[-1]:
+                    break  # try next root when route missing
+                if exc.code in TRANSIENT_HTTP_CODES and attempt < MAX_API_RETRIES:
+                    time.sleep(RETRY_BACKOFF_SECONDS * (2**attempt))
+                    attempt += 1
+                    continue
+                raise last_error from exc
+            except urllib.error.URLError as exc:
+                last_error = RuntimeError(f"Manifold API request failed (URLError): {exc}")
+                if attempt < MAX_API_RETRIES:
+                    time.sleep(RETRY_BACKOFF_SECONDS * (2**attempt))
+                    attempt += 1
+                    continue
+                raise last_error from exc
+            break
+    if last_error:
+        raise last_error
+    raise RuntimeError("Manifold API request failed for unknown reasons.")
 
 
-def _build_url(path: str) -> str:
+def _build_url(path: str, root: str) -> str:
     normalized = path if path.startswith("/") else f"/{path}"
-    return f"{MANIFOLD_API_ROOT}{normalized}"
+    return f"{root}{normalized}"
 
 
 def _auth_headers() -> Dict[str, str]:
