@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import logging
 import re
 import os
 import time
@@ -35,6 +36,12 @@ PROVIDER_LABELS = {
     "gemini": "Gemini",
     "google": "Gemini",
 }
+
+# Quiet noisy schema warnings from the Vertex/Gemini tool serializer.
+_vertex_logger = logging.getLogger("langchain_google_vertexai.functions_utils")
+_vertex_logger.setLevel(logging.ERROR)
+_vertex_logger.propagate = False
+logging.getLogger("langchain_google_vertexai").setLevel(logging.ERROR)
 
 
 @dataclass

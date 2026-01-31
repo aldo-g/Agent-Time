@@ -76,6 +76,19 @@ def _resolve_shares(
     return shares, position.outcome
 
 
+def _available_shares(market_id: str, outcome: str | None, api_key: str) -> float:
+    snapshot = fetch_portfolio_snapshot(api_key=api_key)
+    target = (outcome or "").strip().lower()
+    available = 0.0
+    for position in snapshot.positions:
+        if position.market_id != market_id and position.slug != market_id:
+            continue
+        if target and position.outcome.strip().lower() != target:
+            continue
+        available = max(available, abs(position.shares))
+    return available
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     args = _parse_args(list(argv) if argv is not None else sys.argv[1:])
     api_key = os.environ.get("MANIFOLD_API_KEY")
@@ -114,6 +127,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     except Exception as exc:  # pragma: no cover - CLI convenience
         sys.stderr.write(f"Sell failed: unable to fetch market details ({exc}).\n")
         return 1
+    available = _available_shares(details.market_id, outcome, api_key)
+    if available <= 0:
+        sys.stderr.write(f"Sell failed: no holding for outcome '{outcome}' in market '{details.market_id}'.\n")
+        return 1
+    if shares is None:
+        shares = available
+    else:
+        if shares > available:
+            sys.stderr.write(
+                f"Requested {shares:.2f} shares exceeds holding {available:.2f}; selling {available:.2f} instead.\n"
+            )
+            shares = available
     try:
         receipt = sell_position(
             market_id=args.market_id,

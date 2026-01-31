@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import textwrap
 from typing import Any, Dict
@@ -78,6 +79,13 @@ def _build_llm(model: str, temperature: float, provider: str):
             ) from exc
         return ChatGoogleGenerativeAI(model=model, temperature=temperature)
     raise ValueError(f"Unsupported LLM provider '{provider}'.")
+
+
+# Quiet noisy schema warnings from the Vertex/Gemini tool serializer.
+_vertex_logger = logging.getLogger("langchain_google_vertexai.functions_utils")
+_vertex_logger.setLevel(logging.ERROR)
+_vertex_logger.propagate = False
+logging.getLogger("langchain_google_vertexai").setLevel(logging.ERROR)
 
 
 def _build_prompt() -> ChatPromptTemplate:

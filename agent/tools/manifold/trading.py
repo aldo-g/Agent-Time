@@ -209,10 +209,20 @@ def _run_sell_position(
                 holding = position
                 break
 
-    if holding and abs(holding.shares) + 1e-6 < shares:
-        raise RuntimeError(
-            f"Sell shares {shares:.2f} exceeds holding {abs(holding.shares):.2f} for {target_label}."
-        )
+    available_shares = 0.0
+    for position in snapshot.positions:
+        if position.market_id != details.market_id and position.slug != details.slug:
+            continue
+        if position.outcome.strip().lower() != target_label.strip().lower():
+            continue
+        available_shares = max(available_shares, abs(position.shares))
+    if available_shares <= 0:
+        return f"Sell skipped: no holding for outcome '{target_label}' in market {details.market_id}."
+    requested_shares = shares
+    shares = min(shares, available_shares)
+    adjusted_note = ""
+    if shares < requested_shares:
+        adjusted_note = f" Requested {requested_shares:.2f}, selling available {shares:.2f}."
     prob_before = _resolve_market_prob(details, target_label, answer)
     try:
         receipt = sell_position(
@@ -240,7 +250,7 @@ def _run_sell_position(
                 "market_url": details.url,
                 "outcome": target_label,
                 "amount": receipt.amount,
-                "shares": receipt.shares,
+                "shares": receipt.shares if receipt.shares is not None else shares,
                 "prob_before": prob_before,
                 "prob_after": receipt.probability,
                 "limit_prob": None,
@@ -250,9 +260,10 @@ def _run_sell_position(
         )
     except Exception:
         pass
+    executed_shares = receipt.shares if receipt.shares is not None else shares
     summary = (
-        f"Sold {shares:.2f} shares of '{target_label}' in market {details.market_id}. "
-        f"Bet ID: {receipt.bet_id or 'unknown'}."
+        f"Sold {executed_shares:.2f} shares of '{target_label}' in market {details.market_id}. "
+        f"Bet ID: {receipt.bet_id or 'unknown'}.{adjusted_note}"
     )
     return summary
 
@@ -296,4 +307,3 @@ def _run_limit_order_preview(
     else:
         lines.append("Limit at market: likely immediate fill.")
     return "\n".join(lines)
-
