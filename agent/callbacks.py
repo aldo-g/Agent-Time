@@ -95,7 +95,12 @@ def _extract_token_usage(response: Any) -> TokenUsage | None:  # noqa: ANN401
 def _parse_usage_dict(payload: Any) -> TokenUsage | None:  # noqa: ANN401
     if not isinstance(payload, dict):
         return None
-    nested = payload.get("token_usage") or payload.get("usage") or payload
+    nested = (
+        payload.get("token_usage")
+        or payload.get("usage")
+        or payload.get("usage_metadata")
+        or payload
+    )
     if not isinstance(nested, dict):
         return None
     prompt = nested.get("prompt_tokens") or nested.get("input_tokens")

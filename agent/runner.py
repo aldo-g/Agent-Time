@@ -200,6 +200,12 @@ def run_daily_session(
     started_at = datetime.now(timezone.utc)
     start_time = time.perf_counter()
     result = executor.invoke(inputs, config={"callbacks": callbacks})
+    if token_tracker.usage.total_tokens == 0:
+        logging.warning(
+            "Token usage metadata missing for %s:%s. Tokens in/out will be 0 for this run.",
+            provider,
+            model,
+        )
     finished_at = datetime.now(timezone.utc)
     duration_ms = int((time.perf_counter() - start_time) * 1000)
     if isinstance(result, dict):
