@@ -6,10 +6,12 @@ from __future__ import annotations
 import logging
 import os
 import textwrap
+import time
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 import utils.env_loader as env_loader  # noqa: F401
-from agent.callbacks import ConsoleLogger, ToolCallTracker
+from agent.callbacks import ConsoleLogger, TokenUsageTracker, ToolCallTracker
 from agent.tools import build_agent_tools
 from agent.tools.manifold import reset_inspected_markets
 from langchain.agents import AgentExecutor, create_tool_calling_agent, create_react_agent
@@ -191,16 +193,27 @@ def run_daily_session(
         "chat_history": [],
     }
     tracker = ToolCallTracker()
-    callbacks = [tracker]
+    token_tracker = TokenUsageTracker()
+    callbacks = [tracker, token_tracker]
     if verbose:
         callbacks.append(ConsoleLogger())
+    started_at = datetime.now(timezone.utc)
+    start_time = time.perf_counter()
     result = executor.invoke(inputs, config={"callbacks": callbacks})
+    finished_at = datetime.now(timezone.utc)
+    duration_ms = int((time.perf_counter() - start_time) * 1000)
     if isinstance(result, dict):
         result["tool_calls"] = tracker.successful_tools
         result["tool_calls_unique"] = sorted(set(tracker.successful_tools))
         result["tool_call_failures"] = tracker.failed_tools
         result["captured_trades"] = tracker.trade_outputs
         result["tool_call_errors"] = tracker.failed_tool_errors
+        result["run_started_at"] = started_at.isoformat()
+        result["run_finished_at"] = finished_at.isoformat()
+        result["run_duration_ms"] = duration_ms
+        result["tokens_in"] = token_tracker.usage.prompt_tokens
+        result["tokens_out"] = token_tracker.usage.completion_tokens
+        result["tokens_total"] = token_tracker.usage.total_tokens
     return result
 
 

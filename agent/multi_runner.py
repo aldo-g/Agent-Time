@@ -23,6 +23,8 @@ from agent.runner import (
     DEFAULT_TEMPERATURE,
     run_daily_session,
 )
+from agent.db import DbWriter, TradeRecord
+from agent.tools.manifold.config import DEFAULT_TRADE_LOG_PATH, TRADE_LOG_ENV
 
 DEFAULT_CONFIG_PATH = os.environ.get("AGENT_CONFIG_PATH", "agents.json")
 DEFAULT_RESULTS_PATH = os.environ.get("AGENT_RESULTS_PATH", "results/multi_agent_runs.jsonl")
@@ -233,19 +235,25 @@ def _parse_trades_from_output(output: object) -> List[Dict[str, str]]:
                 summary_parts.append(f"market {market_id}")
             if bet_id:
                 summary_parts.append(f"(Bet ID {bet_id})")
-            trades.append({"trade": " ".join(summary_parts).strip(), "reason": ""})
+            trades.append(
+                {
+                    "trade": " ".join(summary_parts).strip(),
+                    "reason": "",
+                    "amount": amount.replace(",", ""),
+                }
+            )
             last_trade = trades[-1]
             continue
         match_trade = re.search(r"trade\s*-\s*(.+)", clean_line, flags=re.IGNORECASE)
         if match_trade:
-            last_trade = {"trade": match_trade.group(1).strip("* "), "reason": ""}
+            last_trade = {"trade": match_trade.group(1).strip("* "), "reason": "", "amount": None}
             trades.append(last_trade)
             continue
         match_reason = re.search(r"reason\s*-\s*(.+)", clean_line, flags=re.IGNORECASE)
         if match_reason and last_trade is not None:
             last_trade["reason"] = match_reason.group(1).strip()
     filtered = [
-        {"trade": entry["trade"], "reason": entry["reason"]}
+        {"trade": entry["trade"], "reason": entry.get("reason") or "", "amount": entry.get("amount")}
         for entry in trades
         if entry.get("trade")
     ]
@@ -264,6 +272,67 @@ def _extract_no_trade_reason(output: object) -> str | None:
         if len(snippet) > 200:
             snippet = snippet[:197] + "..."
         return snippet
+    return None
+
+
+def _load_trade_log_entries(
+    path: Path,
+    *,
+    agent_name: str,
+    start: datetime,
+    end: datetime | None,
+) -> List[Dict[str, Any]]:
+    if not path.exists():
+        return []
+    entries: List[Dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if payload.get("agent") != agent_name:
+                continue
+            ts_raw = payload.get("timestamp")
+            if not isinstance(ts_raw, str):
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_raw)
+            except ValueError:
+                continue
+            if ts < start:
+                continue
+            if end is not None and ts > end:
+                continue
+            entries.append(payload)
+    return entries
+
+
+def _match_trade_reason(
+    parsed_trades: List[Dict[str, str]],
+    log_entry: Dict[str, Any],
+    used_indices: set[int],
+) -> Dict[str, str] | None:
+    market_id = str(log_entry.get("market_id") or "")
+    market_slug = str(log_entry.get("market_slug") or "")
+    for idx, trade in enumerate(parsed_trades):
+        if idx in used_indices:
+            continue
+        trade_text = trade.get("trade") or ""
+        if market_id and market_id in trade_text:
+            used_indices.add(idx)
+            return trade
+        if market_slug and market_slug in trade_text:
+            used_indices.add(idx)
+            return trade
+    for idx, trade in enumerate(parsed_trades):
+        if idx in used_indices:
+            continue
+        used_indices.add(idx)
+        return trade
     return None
 
 
@@ -315,6 +384,14 @@ def run_multi_agent(
     cache_path = market_cache_path or DEFAULT_MARKET_CACHE_PATH
     market_events = _prepare_market_cache(market_limit, cache_path)
     session_records: List[Dict[str, Any]] = []
+    db_writer: DbWriter | None = None
+    try:
+        db_writer = DbWriter.from_env()
+        db_writer.ensure_schema()
+    except Exception as exc:  # noqa: BLE001
+        print(f"Database not configured or unavailable. Skipping DB writes. ({exc})")
+        db_writer = None
+    trade_log_path = Path(os.environ.get(TRADE_LOG_ENV, str(DEFAULT_TRADE_LOG_PATH)))
     for cfg in configs:
         timestamp = datetime.now(timezone.utc).isoformat()
         manifold_key = cfg.resolve_manifold_key()
@@ -324,16 +401,30 @@ def run_multi_agent(
         output: str | Dict[str, Any] | None = None
         error: str | None = None
         tool_calls = None
+        tool_calls_all = None
         captured_trades = None
         tool_errors = None
         portfolio_snapshot = None
         portfolio_error = None
+        pre_cash_balance: float | None = None
+        cash_netted: float | None = None
+        run_started_at = datetime.now(timezone.utc)
+        run_finished_at: datetime | None = None
+        run_duration_ms: int | None = None
+        tokens_in: int | None = None
+        tokens_out: int | None = None
+        tokens_total: int | None = None
         with (
             _temporary_env("MANIFOLD_API_KEY", manifold_key),
             _temporary_env("AGENT_NAME", cfg.name),
             _temporary_env("AGENT_PROVIDER", cfg.model_provider),
             _temporary_env("AGENT_MODEL", cfg.model),
         ):
+            try:
+                pre_snapshot = fetch_portfolio_snapshot(None)
+                pre_cash_balance = pre_snapshot.cash_balance
+            except Exception:  # noqa: BLE001
+                pre_cash_balance = None
             for attempt in range(2):
                 try:
                     result = run_daily_session(
@@ -346,8 +437,28 @@ def run_multi_agent(
                     )
                     output = result.get("output") if isinstance(result, dict) else result
                     tool_calls = result.get("tool_calls_unique") if isinstance(result, dict) else None
+                    tool_calls_all = result.get("tool_calls") if isinstance(result, dict) else None
                     captured_trades = result.get("captured_trades") if isinstance(result, dict) else None
                     tool_errors = result.get("tool_call_errors") if isinstance(result, dict) else None
+                    if isinstance(result, dict):
+                        started_raw = result.get("run_started_at")
+                        finished_raw = result.get("run_finished_at")
+                        duration_raw = result.get("run_duration_ms")
+                        if isinstance(started_raw, str):
+                            try:
+                                run_started_at = datetime.fromisoformat(started_raw)
+                            except ValueError:
+                                pass
+                        if isinstance(finished_raw, str):
+                            try:
+                                run_finished_at = datetime.fromisoformat(finished_raw)
+                            except ValueError:
+                                run_finished_at = None
+                        if isinstance(duration_raw, int):
+                            run_duration_ms = duration_raw
+                        tokens_in = result.get("tokens_in")
+                        tokens_out = result.get("tokens_out")
+                        tokens_total = result.get("tokens_total")
                     success = True
                     error = None  # clear any previous attempt errors
                     break
@@ -385,6 +496,12 @@ def run_multi_agent(
                         if attempt == 0:
                             time.sleep(2)
                             continue
+            if isinstance(portfolio_snapshot, dict):
+                post_cash_balance = portfolio_snapshot.get("cash_balance")
+                if pre_cash_balance is not None and post_cash_balance is not None:
+                    cash_netted = float(post_cash_balance) - float(pre_cash_balance)
+        if run_finished_at is None:
+            run_finished_at = datetime.now(timezone.utc)
         record = {
             "timestamp": timestamp,
             "agent": cfg.name,
@@ -399,6 +516,13 @@ def run_multi_agent(
             "tool_errors": tool_errors,
             "portfolio": portfolio_snapshot,
             "portfolio_error": portfolio_error,
+            "run_started_at": run_started_at.isoformat(),
+            "run_finished_at": run_finished_at.isoformat() if run_finished_at else None,
+            "run_duration_ms": run_duration_ms,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "tokens_total": tokens_total,
+            "cash_netted": cash_netted,
         }
         _persist_result(record, results_path)
         trades = _parse_trades_from_output(output)
@@ -408,6 +532,116 @@ def run_multi_agent(
         no_trade_reason = _extract_no_trade_reason(output) if success and not trades else None
         if success and not trades and not no_trade_reason:
             no_trade_reason = "Agent did not provide a reason for no trades."
+        if db_writer is not None:
+            try:
+                bankroll = None
+                cash_balance = None
+                positions_value = None
+                if isinstance(portfolio_snapshot, dict):
+                    bankroll = portfolio_snapshot.get("bankroll")
+                    cash_balance = portfolio_snapshot.get("cash_balance")
+                    positions_value = portfolio_snapshot.get("positions_value")
+                agent_id = db_writer.upsert_agent(
+                    agent_name=cfg.name,
+                    model_provider=cfg.model_provider,
+                    model=cfg.model,
+                    current_balance=bankroll,
+                    cash_balance=cash_balance,
+                    position_balance=positions_value,
+                    last_seen_at=run_finished_at or run_started_at,
+                )
+                run_id = db_writer.insert_run(
+                    agent_id=agent_id,
+                    started_at=run_started_at,
+                    finished_at=run_finished_at,
+                    run_duration_ms=run_duration_ms,
+                    success=success,
+                    error=None if success else error,
+                    no_trade_reason=no_trade_reason,
+                    tool_calls_count=len(tool_calls_all or []),
+                    tokens_in=int(tokens_in) if tokens_in is not None else None,
+                    tokens_out=int(tokens_out) if tokens_out is not None else None,
+                    tokens_total=int(tokens_total) if tokens_total is not None else None,
+                    cash_netted=float(cash_netted) if cash_netted is not None else None,
+                    bankroll=float(bankroll) if bankroll is not None else None,
+                )
+                trade_records: list[TradeRecord] = []
+                log_entries = _load_trade_log_entries(
+                    trade_log_path,
+                    agent_name=cfg.name,
+                    start=run_started_at,
+                    end=run_finished_at,
+                )
+                used_indices: set[int] = set()
+                if log_entries:
+                    for entry in log_entries:
+                        matched = _match_trade_reason(trades, entry, used_indices)
+                        trade_text = None
+                        reason = None
+                        if matched:
+                            trade_text = matched.get("trade")
+                            reason = matched.get("reason") or None
+                        if not trade_text:
+                            outcome = entry.get("outcome")
+                            market = entry.get("market")
+                            action = entry.get("action") or "TRADE"
+                            if market and outcome:
+                                trade_text = f"{action} {market} [{outcome}]"
+                            elif market:
+                                trade_text = f"{action} {market}"
+                            else:
+                                trade_text = f"{action} {entry.get('market_id', 'unknown market')}"
+                        amount = entry.get("amount")
+                        trade_records.append(
+                            TradeRecord(
+                                agent_name=cfg.name,
+                                trade_text=str(trade_text),
+                                reason=reason,
+                                amount=float(amount) if amount is not None else None,
+                                status="executed" if success else "failed",
+                                market_id=entry.get("market_id"),
+                                market_slug=entry.get("market_slug"),
+                            )
+                        )
+                else:
+                    for trade in trades:
+                        raw_amount = trade.get("amount")
+                        amount = None
+                        if raw_amount:
+                            try:
+                                amount = float(raw_amount)
+                            except ValueError:
+                                amount = None
+                        trade_records.append(
+                            TradeRecord(
+                                agent_name=cfg.name,
+                                trade_text=str(trade.get("trade") or ""),
+                                reason=trade.get("reason") or None,
+                                amount=amount,
+                                status="executed" if success else "failed",
+                            )
+                        )
+                if tool_errors:
+                    for tool_error in tool_errors:
+                        tool_error_text = str(tool_error)
+                        if not any(
+                            tool_name in tool_error_text
+                            for tool_name in ("manifold_place_bet", "manifold_sell_position")
+                        ):
+                            continue
+                        trade_records.append(
+                            TradeRecord(
+                                agent_name=cfg.name,
+                                trade_text=tool_error_text,
+                                reason=None,
+                                amount=None,
+                                status="failed",
+                                error=tool_error_text,
+                            )
+                        )
+                db_writer.insert_trades(run_id=run_id, agent_id=agent_id, trades=trade_records)
+            except Exception as exc:  # noqa: BLE001
+                print(f"Failed to write run to DB: {exc}")
         record_summary = {
             "agent": cfg.name,
             "provider": cfg.model_provider,

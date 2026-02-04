@@ -37,6 +37,55 @@
 - **Decision Packet Fields:** market info, observed prob, agent belief + confidence, estimated EV/edge, bet sizing inputs, constraint outcomes, action, rationale text, evidence references.
 - **Connector API Surface:** methods listed above, all returning typed responses + normalized error handling.
 
+## Database Schema Plan (for trade history + analytics)
+Goal: capture agent → runs → trades with token costs, tool usage, and portfolio snapshots.
+
+### agents
+- `id` (PK)
+- `name` (unique)
+- `model_provider`
+- `model`
+- `current_balance`
+- `cash_balance`
+- `position_balance`
+- `last_seen_at`
+
+### runs
+- `id` (PK)
+- `agent_id` (FK → agents.id)
+- `started_at`
+- `finished_at`
+- `run_duration_ms`
+- `success`
+- `error`
+- `no_trade_reason`
+- `tool_calls_count`
+- `tokens_in`
+- `tokens_out`
+- `tokens_total`
+- `cash_netted`
+- `bankroll`
+
+### trades
+- `id` (PK)
+- `run_id` (FK → runs.id)
+- `agent_id` (FK → agents.id)
+- `market_id`
+- `market_slug`
+- `trade_text`
+- `reason`
+- `amount`
+- `status` (executed | failed)
+- `error`
+- `decision_confidence`
+- `edge`
+- `created_at`
+
+Notes:
+- `agents` is mostly static metadata + rolling balances; `runs` and `trades` hold history.
+- We store failed trade attempts to preserve auditability.
+- Token counts (`tokens_in`, `tokens_out`) are tracked; costs are not stored.
+
 ## Open Questions / Inputs Needed
 - Manifold API key for authenticated endpoints (Steps 2+) — fill in `MANIFOLD_API_KEY` (and optional overrides like `MANIFOLD_API_ROOT`).
 - Postgres deployment target + connection string (local vs hosted).
