@@ -387,6 +387,8 @@ def run_multi_agent(
     db_writer: DbWriter | None = None
     session_id: int | None = None
     session_started_at = datetime.now(timezone.utc)
+    agent_ids: Dict[str, int] = {}
+    run_ids: Dict[str, int] = {}
     try:
         db_writer = DbWriter.from_env()
         db_writer.ensure_schema()
@@ -397,6 +399,22 @@ def run_multi_agent(
             market_count=market_count,
             notes=None,
         )
+        for cfg in configs:
+            agent_id = db_writer.upsert_agent(
+                agent_name=cfg.name,
+                model_provider=cfg.model_provider,
+                model=cfg.model,
+                current_balance=None,
+                cash_balance=None,
+                position_balance=None,
+                last_seen_at=session_started_at,
+            )
+            agent_ids[cfg.name] = agent_id
+            run_ids[cfg.name] = db_writer.create_run_placeholder(
+                session_id=session_id,
+                agent_id=agent_id,
+                started_at=session_started_at,
+            )
     except Exception as exc:  # noqa: BLE001
         print(f"Database not configured or unavailable. Skipping DB writes. ({exc})")
         db_writer = None
@@ -417,12 +435,14 @@ def run_multi_agent(
         portfolio_error = None
         pre_cash_balance: float | None = None
         cash_netted: float | None = None
-        run_started_at = datetime.now(timezone.utc)
+        run_started_at: datetime | None = None
         run_finished_at: datetime | None = None
         run_duration_ms: int | None = None
         tokens_in: int | None = None
         tokens_out: int | None = None
         tokens_total: int | None = None
+        run_id = run_ids.get(cfg.name) if db_writer is not None else None
+        agent_id = agent_ids.get(cfg.name) if db_writer is not None else None
         with (
             _temporary_env("MANIFOLD_API_KEY", manifold_key),
             _temporary_env("AGENT_NAME", cfg.name),
@@ -434,7 +454,24 @@ def run_multi_agent(
                 pre_cash_balance = pre_snapshot.cash_balance
             except Exception:  # noqa: BLE001
                 pre_cash_balance = None
-            for attempt in range(2):
+            for attempt in range(3):
+                if attempt > 0 and db_writer is not None and session_id is not None and agent_id is not None:
+                    run_id = db_writer.create_run_placeholder(
+                        session_id=session_id,
+                        agent_id=agent_id,
+                        started_at=datetime.now(timezone.utc),
+                    )
+                run_started_at = datetime.now(timezone.utc)
+                run_finished_at = None
+                run_duration_ms = None
+                tokens_in = None
+                tokens_out = None
+                tokens_total = None
+                output = None
+                tool_calls = None
+                tool_calls_all = None
+                captured_trades = None
+                tool_errors = None
                 try:
                     result = run_daily_session(
                         instruction,
@@ -470,14 +507,17 @@ def run_multi_agent(
                         tokens_total = result.get("tokens_total")
                     success = True
                     error = None  # clear any previous attempt errors
-                    break
                 except Exception as exc:  # noqa: BLE001
                     msg = str(exc).strip()
                     error = msg or f"{exc.__class__.__name__}"
+                    run_finished_at = datetime.now(timezone.utc)
+                    run_duration_ms = int((run_finished_at - run_started_at).total_seconds() * 1000)
                     if attempt == 0:
                         print(f"Retrying agent '{cfg.name}' after error: {error}")
                         time.sleep(2)
-                        continue
+                    elif attempt < 2:
+                        print(f"Retrying agent '{cfg.name}' after error: {error}")
+                        time.sleep(2)
                     if cfg.model_provider.lower() in {"gemini", "google"}:
                         lowered = error.lower()
                         if "resourceexhausted" in lowered or "quota" in lowered or "429" in lowered:
@@ -486,6 +526,31 @@ def run_multi_agent(
                                 "Check your plan/usage limits and retry later."
                             )
                     print(f"Agent '{cfg.name}' failed: {error}")
+                if run_finished_at is None:
+                    run_finished_at = datetime.now(timezone.utc)
+                if run_duration_ms is None and run_started_at is not None:
+                    run_duration_ms = int((run_finished_at - run_started_at).total_seconds() * 1000)
+                if db_writer is not None and run_id is not None and run_started_at is not None:
+                    try:
+                        db_writer.update_run(
+                            run_id=run_id,
+                            started_at=run_started_at,
+                            finished_at=run_finished_at,
+                            run_duration_ms=run_duration_ms,
+                            success=success,
+                            error=None if success else error,
+                            no_trade_reason=None,
+                            tool_calls_count=len(tool_calls_all or []),
+                            tokens_in=tokens_in,
+                            tokens_out=tokens_out,
+                            tokens_total=tokens_total,
+                            cash_netted=None,
+                            bankroll=None,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"Failed to update run {run_id}: {exc}")
+                if success:
+                    break
             if success:
                 for attempt in range(2):
                     try:
@@ -559,22 +624,22 @@ def run_multi_agent(
                     position_balance=positions_value,
                     last_seen_at=run_finished_at or run_started_at,
                 )
-                run_id = db_writer.insert_run(
-                    session_id=session_id,
-                    agent_id=agent_id,
-                    started_at=run_started_at,
-                    finished_at=run_finished_at,
-                    run_duration_ms=run_duration_ms,
-                    success=success,
-                    error=None if success else error,
-                    no_trade_reason=no_trade_reason,
-                    tool_calls_count=len(tool_calls_all or []),
-                    tokens_in=int(tokens_in) if tokens_in is not None else None,
-                    tokens_out=int(tokens_out) if tokens_out is not None else None,
-                    tokens_total=int(tokens_total) if tokens_total is not None else None,
-                    cash_netted=float(cash_netted) if cash_netted is not None else None,
-                    bankroll=float(bankroll) if bankroll is not None else None,
-                )
+                if run_id is not None and run_started_at is not None:
+                    db_writer.update_run(
+                        run_id=run_id,
+                        started_at=run_started_at,
+                        finished_at=run_finished_at,
+                        run_duration_ms=run_duration_ms,
+                        success=success,
+                        error=None if success else error,
+                        no_trade_reason=no_trade_reason,
+                        tool_calls_count=len(tool_calls_all or []),
+                        tokens_in=int(tokens_in) if tokens_in is not None else None,
+                        tokens_out=int(tokens_out) if tokens_out is not None else None,
+                        tokens_total=int(tokens_total) if tokens_total is not None else None,
+                        cash_netted=float(cash_netted) if cash_netted is not None else None,
+                        bankroll=float(bankroll) if bankroll is not None else None,
+                    )
                 trade_records: list[TradeRecord] = []
                 log_entries = _load_trade_log_entries(
                     trade_log_path,

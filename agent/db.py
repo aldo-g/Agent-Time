@@ -91,7 +91,7 @@ class DbWriter:
                         started_at TIMESTAMPTZ NOT NULL,
                         finished_at TIMESTAMPTZ,
                         run_duration_ms INTEGER,
-                        success BOOLEAN NOT NULL,
+                        success BOOLEAN,
                         error TEXT,
                         no_trade_reason TEXT,
                         tool_calls_count INTEGER,
@@ -176,6 +176,10 @@ class DbWriter:
                 cur.execute(
                     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS bankroll NUMERIC;"
                 )
+                try:
+                    cur.execute("ALTER TABLE runs ALTER COLUMN success DROP NOT NULL;")
+                except self._errors.UndefinedColumn:
+                    pass
                 cur.execute(
                     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS agent_id BIGINT;"
                 )
@@ -254,6 +258,85 @@ class DbWriter:
                     (finished_at, session_id),
                 )
 
+    def create_run_placeholder(
+        self,
+        *,
+        session_id: int,
+        agent_id: int,
+        started_at: datetime,
+    ) -> int:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO runs (
+                        session_id,
+                        agent_id,
+                        started_at,
+                        success
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id;
+                    """,
+                    (session_id, agent_id, started_at, None),
+                )
+                run_id = cur.fetchone()[0]
+        return int(run_id)
+
+    def update_run(
+        self,
+        *,
+        run_id: int,
+        started_at: datetime,
+        finished_at: Optional[datetime],
+        run_duration_ms: Optional[int],
+        success: Optional[bool],
+        error: Optional[str],
+        no_trade_reason: Optional[str],
+        tool_calls_count: Optional[int],
+        tokens_in: Optional[int],
+        tokens_out: Optional[int],
+        tokens_total: Optional[int],
+        cash_netted: Optional[float],
+        bankroll: Optional[float],
+    ) -> None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE runs
+                    SET
+                        started_at = %s,
+                        finished_at = %s,
+                        run_duration_ms = %s,
+                        success = %s,
+                        error = %s,
+                        no_trade_reason = %s,
+                        tool_calls_count = %s,
+                        tokens_in = %s,
+                        tokens_out = %s,
+                        tokens_total = %s,
+                        cash_netted = %s,
+                        bankroll = %s
+                    WHERE id = %s;
+                    """,
+                    (
+                        started_at,
+                        finished_at,
+                        run_duration_ms,
+                        success,
+                        error,
+                        no_trade_reason,
+                        tool_calls_count,
+                        tokens_in,
+                        tokens_out,
+                        tokens_total,
+                        cash_netted,
+                        bankroll,
+                        run_id,
+                    ),
+                )
+
     def upsert_agent(
         self,
         *,
@@ -283,9 +366,9 @@ class DbWriter:
                     DO UPDATE SET
                         model_provider = EXCLUDED.model_provider,
                         model = EXCLUDED.model,
-                        current_balance = EXCLUDED.current_balance,
-                        cash_balance = EXCLUDED.cash_balance,
-                        position_balance = EXCLUDED.position_balance,
+                        current_balance = COALESCE(EXCLUDED.current_balance, agents.current_balance),
+                        cash_balance = COALESCE(EXCLUDED.cash_balance, agents.cash_balance),
+                        position_balance = COALESCE(EXCLUDED.position_balance, agents.position_balance),
                         last_seen_at = EXCLUDED.last_seen_at
                     RETURNING id;
                     """,
@@ -310,7 +393,7 @@ class DbWriter:
         started_at: datetime,
         finished_at: Optional[datetime],
         run_duration_ms: Optional[int],
-        success: bool,
+        success: Optional[bool],
         error: Optional[str],
         no_trade_reason: Optional[str],
         tool_calls_count: Optional[int],
