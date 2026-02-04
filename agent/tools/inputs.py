@@ -91,7 +91,10 @@ class SellPositionInput(BaseModel):
 
     market_id: str = Field(..., description="Manifold market id or slug.")
     outcome: str = Field(..., description="Desired outcome (YES/NO or answer label).")
-    shares: PositiveAmount = Field(..., description="Number of shares to sell.")
+    shares: PositiveAmount | None = Field(
+        default=None,
+        description="Optional; ignored. The tool always sells the full position for the chosen outcome.",
+    )
     answer: str | None = Field(
         default=None,
         description="Optional answer label for multi-choice markets when outcome alone is ambiguous.",

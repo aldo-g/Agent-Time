@@ -58,6 +58,18 @@ class DbWriter:
             with conn.cursor() as cur:
                 cur.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        id BIGSERIAL PRIMARY KEY,
+                        started_at TIMESTAMPTZ NOT NULL,
+                        finished_at TIMESTAMPTZ,
+                        market_cache_path TEXT,
+                        market_count INTEGER,
+                        notes TEXT
+                    );
+                    """
+                )
+                cur.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS agents (
                         id BIGSERIAL PRIMARY KEY,
                         name TEXT UNIQUE NOT NULL,
@@ -74,6 +86,7 @@ class DbWriter:
                     """
                     CREATE TABLE IF NOT EXISTS runs (
                         id BIGSERIAL PRIMARY KEY,
+                        session_id BIGINT REFERENCES sessions(id) ON DELETE CASCADE,
                         agent_id BIGINT REFERENCES agents(id) ON DELETE CASCADE,
                         started_at TIMESTAMPTZ NOT NULL,
                         finished_at TIMESTAMPTZ,
@@ -113,7 +126,13 @@ class DbWriter:
                     "CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);"
                 )
                 cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);"
+                )
+                cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs(agent_id);"
+                )
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id);"
                 )
                 cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at);"
@@ -129,6 +148,9 @@ class DbWriter:
                 )
                 cur.execute(
                     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS agent_id BIGINT;"
+                )
+                cur.execute(
+                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS session_id BIGINT;"
                 )
                 cur.execute(
                     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ;"
@@ -193,6 +215,45 @@ class DbWriter:
                 except self._errors.UndefinedColumn:
                     pass
 
+    def create_session(
+        self,
+        *,
+        started_at: datetime,
+        market_cache_path: Optional[str],
+        market_count: Optional[int],
+        notes: Optional[str] = None,
+    ) -> int:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO sessions (
+                        started_at,
+                        market_cache_path,
+                        market_count,
+                        notes
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id;
+                    """,
+                    (
+                        started_at,
+                        market_cache_path,
+                        market_count,
+                        notes,
+                    ),
+                )
+                session_id = cur.fetchone()[0]
+        return int(session_id)
+
+    def finish_session(self, *, session_id: int, finished_at: datetime) -> None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE sessions SET finished_at = %s WHERE id = %s;",
+                    (finished_at, session_id),
+                )
+
     def upsert_agent(
         self,
         *,
@@ -244,6 +305,7 @@ class DbWriter:
     def insert_run(
         self,
         *,
+        session_id: int,
         agent_id: int,
         started_at: datetime,
         finished_at: Optional[datetime],
@@ -263,6 +325,7 @@ class DbWriter:
                 cur.execute(
                     """
                     INSERT INTO runs (
+                        session_id,
                         agent_id,
                         started_at,
                         finished_at,
@@ -277,10 +340,11 @@ class DbWriter:
                         cash_netted,
                         bankroll
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id;
                     """,
                     (
+                        session_id,
                         agent_id,
                         started_at,
                         finished_at,

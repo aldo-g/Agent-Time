@@ -385,9 +385,18 @@ def run_multi_agent(
     market_events = _prepare_market_cache(market_limit, cache_path)
     session_records: List[Dict[str, Any]] = []
     db_writer: DbWriter | None = None
+    session_id: int | None = None
+    session_started_at = datetime.now(timezone.utc)
     try:
         db_writer = DbWriter.from_env()
         db_writer.ensure_schema()
+        market_count = len(market_events) if market_events else None
+        session_id = db_writer.create_session(
+            started_at=session_started_at,
+            market_cache_path=str(cache_path),
+            market_count=market_count,
+            notes=None,
+        )
     except Exception as exc:  # noqa: BLE001
         print(f"Database not configured or unavailable. Skipping DB writes. ({exc})")
         db_writer = None
@@ -551,6 +560,7 @@ def run_multi_agent(
                     last_seen_at=run_finished_at or run_started_at,
                 )
                 run_id = db_writer.insert_run(
+                    session_id=session_id,
                     agent_id=agent_id,
                     started_at=run_started_at,
                     finished_at=run_finished_at,
@@ -655,6 +665,11 @@ def run_multi_agent(
         session_records.append(record_summary)
         if success:
             print(f"Agent '{cfg.name}' completed.")
+    if db_writer is not None and session_id is not None:
+        try:
+            db_writer.finish_session(session_id=session_id, finished_at=datetime.now(timezone.utc))
+        except Exception as exc:  # noqa: BLE001
+            print(f"Failed to finalize session {session_id}: {exc}")
     _print_session_summary(market_events, session_records)
 
 

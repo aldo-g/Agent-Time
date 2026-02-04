@@ -23,6 +23,13 @@ class ToolCallTracker(BaseCallbackHandler):
             self.successful_tools.append(name)
             if name in {"manifold_place_bet", "manifold_sell_position"} and output is not None:
                 self.trade_outputs.append(str(output))
+            if (
+                name in {"manifold_place_bet", "manifold_sell_position"}
+                and isinstance(output, str)
+                and (output.startswith("Bet skipped") or output.startswith("Sell skipped"))
+            ):
+                self.failed_tools.append(name)
+                self.failed_tool_errors.append(f"{name}: {output}")
 
     def on_tool_error(self, error: Exception | KeyboardInterrupt, **kwargs: Any) -> None:
         name = self._extract_tool_name(kwargs)

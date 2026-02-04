@@ -96,7 +96,13 @@ def _run_place_bet(
                 answer_id = best_option.answer_id
                 target_label = best_option.label
         if not answer_id:
-            raise RuntimeError(f"Unable to resolve answer '{lookup_label}'. Call manifold_market_details first.")
+            labels = [option.label for option in details.answers if option.label]
+            preview = ", ".join(labels[:5])
+            more = f" (+{len(labels) - 5} more)" if len(labels) > 5 else ""
+            return (
+                f"Bet skipped: unable to resolve answer '{lookup_label}' for market {details.market_id}. "
+                f"Valid answers: {preview}{more}. Call manifold_market_details and pass answer=<label>."
+            )
         target_label = lookup_label
     prob_before = _resolve_market_prob(details, target_label, answer)
     try:
@@ -148,11 +154,9 @@ def _run_sell_position(
     *,
     market_id: str,
     outcome: str,
-    shares: float,
+    shares: float | None = None,
     answer: Optional[str] = None,
 ) -> str:
-    if shares <= 0:
-        raise RuntimeError("shares must be positive.")
     allowed, normalized, msg = _enforce_market_limit(market_id)
     if not allowed:
         return msg or "Market limit reached."
@@ -216,13 +220,14 @@ def _run_sell_position(
         if position.outcome.strip().lower() != target_label.strip().lower():
             continue
         available_shares = max(available_shares, abs(position.shares))
-    if available_shares <= 0:
+    epsilon = 1e-6
+    if available_shares <= epsilon:
         return f"Sell skipped: no holding for outcome '{target_label}' in market {details.market_id}."
     requested_shares = shares
-    shares = min(shares, available_shares)
+    shares = max(0.0, available_shares)
     adjusted_note = ""
-    if shares < requested_shares:
-        adjusted_note = f" Requested {requested_shares:.2f}, selling available {shares:.2f}."
+    if requested_shares is not None and abs(shares - requested_shares) > epsilon:
+        adjusted_note = f" Requested {requested_shares:.2f}, selling full position {shares:.2f}."
     prob_before = _resolve_market_prob(details, target_label, answer)
     try:
         receipt = sell_position(
