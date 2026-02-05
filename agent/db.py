@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -68,8 +69,7 @@ class DbWriter:
                         id BIGSERIAL PRIMARY KEY,
                         started_at TIMESTAMPTZ NOT NULL,
                         finished_at TIMESTAMPTZ,
-                        market_cache_path TEXT,
-                        market_count INTEGER,
+                        market_json JSONB,
                         notes TEXT
                     );
                     """
@@ -133,6 +133,15 @@ class DbWriter:
                 )
                 cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);"
+                )
+                cur.execute(
+                    "ALTER TABLE sessions DROP COLUMN IF EXISTS market_cache_path;"
+                )
+                cur.execute(
+                    "ALTER TABLE sessions DROP COLUMN IF EXISTS market_count;"
+                )
+                cur.execute(
+                    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS market_json JSONB;"
                 )
                 cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs(agent_id);"
@@ -229,9 +238,6 @@ class DbWriter:
                     "ALTER TABLE runs DROP COLUMN IF EXISTS total_token_cost;"
                 )
                 cur.execute(
-                    "ALTER TABLE runs DROP COLUMN IF EXISTS cash_balance;"
-                )
-                cur.execute(
                     "ALTER TABLE runs DROP COLUMN IF EXISTS positions_value;"
                 )
                 try:
@@ -247,8 +253,7 @@ class DbWriter:
         self,
         *,
         started_at: datetime,
-        market_cache_path: Optional[str],
-        market_count: Optional[int],
+        market_json: Optional[dict],
         notes: Optional[str] = None,
     ) -> int:
         with self.connect() as conn:
@@ -257,22 +262,55 @@ class DbWriter:
                     """
                     INSERT INTO sessions (
                         started_at,
-                        market_cache_path,
-                        market_count,
+                        market_json,
                         notes
                     )
-                    VALUES (%s, %s, %s, %s)
+                    VALUES (%s, %s, %s)
                     RETURNING id;
                     """,
                     (
                         started_at,
-                        market_cache_path,
-                        market_count,
+                        json.dumps(market_json) if market_json is not None else None,
                         notes,
                     ),
                 )
                 session_id = cur.fetchone()[0]
         return int(session_id)
+
+    def get_latest_session(self) -> Optional[dict]:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, started_at
+                    FROM sessions
+                    ORDER BY started_at DESC
+                    LIMIT 1;
+                    """
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                session_id, started_at = row
+        return {"id": int(session_id), "started_at": started_at}
+
+    def get_run_id(self, *, session_id: int, agent_id: int) -> Optional[int]:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id
+                    FROM runs
+                    WHERE session_id = %s AND agent_id = %s
+                    ORDER BY started_at DESC
+                    LIMIT 1;
+                    """,
+                    (session_id, agent_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return int(row[0])
 
     def finish_session(self, *, session_id: int, finished_at: datetime) -> None:
         with self.connect() as conn:

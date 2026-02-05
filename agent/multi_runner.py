@@ -212,6 +212,27 @@ def _prepare_market_cache(limit: int, cache_path: Path) -> List[EventSummary] | 
     return events
 
 
+def _load_market_cache(cache_path: Path) -> List[EventSummary] | None:
+    if not cache_path.exists():
+        print(f"Warning: market cache not found at {cache_path}.")
+        return None
+    try:
+        with cache_path.open("r", encoding="utf-8") as handle:
+            snapshot = json.load(handle)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Warning: unable to read market cache ({exc}).")
+        return None
+    events = snapshot.get("events")
+    if not isinstance(events, list):
+        return None
+    os.environ[MARKET_CACHE_ENV] = str(cache_path)
+    fetched_at = snapshot.get("fetched_at")
+    if isinstance(fetched_at, str):
+        os.environ["PREDICT_ARENA_MARKET_FETCHED_AT"] = fetched_at
+    os.environ["PREDICT_ARENA_MARKET_COUNT"] = str(len(events))
+    return events
+
+
 def _parse_trades_from_output(output: object) -> List[Dict[str, str]]:
     if not isinstance(output, str):
         return []
@@ -377,12 +398,17 @@ def run_multi_agent(
     results_path: str,
     market_limit: int,
     market_cache_path: Path | None = None,
+    skip_market_fetch: bool = False,
     verbose: bool = False,
 ) -> None:
     # Ensure a shared MANIFOLD_API_KEY cannot leak across agents.
     os.environ.pop("MANIFOLD_API_KEY", None)
     cache_path = market_cache_path or DEFAULT_MARKET_CACHE_PATH
-    market_events = _prepare_market_cache(market_limit, cache_path)
+    market_events = (
+        _load_market_cache(cache_path)
+        if skip_market_fetch
+        else _prepare_market_cache(market_limit, cache_path)
+    )
     session_records: List[Dict[str, Any]] = []
     db_writer: DbWriter | None = None
     session_id: int | None = None
@@ -392,13 +418,11 @@ def run_multi_agent(
     try:
         db_writer = DbWriter.from_env()
         db_writer.ping()
-        market_count = len(market_events) if market_events else None
-        session_id = db_writer.create_session(
-            started_at=session_started_at,
-            market_cache_path=str(cache_path),
-            market_count=market_count,
-            notes=None,
-        )
+        latest_session = db_writer.get_latest_session()
+        if not latest_session:
+            raise RuntimeError("No session found. Run market-fetcher first.")
+        session_id = latest_session["id"]
+        session_started_at = latest_session["started_at"]
         for cfg in configs:
             agent_id = db_writer.upsert_agent(
                 agent_name=cfg.name,
@@ -407,11 +431,14 @@ def run_multi_agent(
                 last_seen_at=session_started_at,
             )
             agent_ids[cfg.name] = agent_id
-            run_ids[cfg.name] = db_writer.create_run_placeholder(
-                session_id=session_id,
-                agent_id=agent_id,
-                started_at=session_started_at,
-            )
+            run_id = db_writer.get_run_id(session_id=session_id, agent_id=agent_id)
+            if run_id is None:
+                run_id = db_writer.create_run_placeholder(
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    started_at=session_started_at,
+                )
+            run_ids[cfg.name] = run_id
     except Exception as exc:  # noqa: BLE001
         print(f"Database not configured or unavailable. Skipping DB writes. ({exc})")
         db_writer = None
@@ -763,6 +790,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="File path for the shared market snapshot JSON.",
     )
     parser.add_argument(
+        "--skip-market-fetch",
+        action="store_true",
+        help="Use the shared market cache file instead of fetching markets live.",
+    )
+    parser.add_argument(
         "--agent",
         dest="agents",
         action="append",
@@ -822,6 +854,7 @@ def main() -> None:
         results_path=args.results,
         market_limit=args.market_limit,
         market_cache_path=Path(args.market_cache),
+        skip_market_fetch=args.skip_market_fetch,
         verbose=args.verbose,
     )
 

@@ -1,6 +1,6 @@
 -- Seed agents from agents.json on first database initialization.
--- The file is mounted into /docker-entrypoint-initdb.d/agents.json by docker-compose.
-\set agents_json `cat /docker-entrypoint-initdb.d/agents.json | tr -d '\n\r'`
+-- The file is mounted into /agents.json by docker-compose.
+\set agents_json `cat /agents.json | tr -d '\n\r'`
 
 INSERT INTO agents (name, model_provider, model, last_seen_at)
 SELECT

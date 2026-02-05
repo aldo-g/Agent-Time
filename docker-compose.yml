@@ -8,7 +8,7 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
-      - ./agents.json:/docker-entrypoint-initdb.d/agents.json:ro
+      - ./agents.json:/agents.json:ro
     ports:
       - "5432:5432"
 
@@ -16,9 +16,12 @@ services:
     build: .
     command: ["python", "-m", "agent.fetch_markets", "--market-limit", "${AGENT_MARKET_CACHE_LIMIT:-25}", "--cache-path", "/data/shared_markets.json"]
     environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://agent_time:agent_time@postgres:5432/agent_time}
       PREDICT_ARENA_MARKET_CACHE: /data/shared_markets.json
+      AGENT_CONFIG_PATH: /app/agents.json
     volumes:
       - ./data:/data
+      - ./agents.json:/app/agents.json:ro
     depends_on:
       - postgres
 

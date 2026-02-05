@@ -9,8 +9,19 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent.db import DbWriter
 from agent.manifold.data import events_to_dicts, load_open_markets
 from agent.tools.manifold.config import MARKET_CACHE_ENV
+
+
+def _load_agents_config(path: Path) -> list[dict]:
+    if not path.exists():
+        raise FileNotFoundError(f"Agent config file not found: {path}")
+    with path.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, list):
+        raise ValueError("Agent config file must contain a JSON list.")
+    return data
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -32,9 +43,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _build_arg_parser().parse_args()
     cache_path = Path(args.cache_path)
+    fetched_at = datetime.now(timezone.utc)
     events = load_open_markets(args.market_limit, 0)
     snapshot = {
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": fetched_at.isoformat(),
         "limit": args.market_limit,
         "events": events_to_dicts(events),
     }
@@ -42,6 +54,38 @@ def main() -> None:
     with cache_path.open("w", encoding="utf-8") as handle:
         json.dump(snapshot, handle)
     print(f"Shared market snapshot saved to {cache_path} ({len(snapshot['events'])} markets).")
+
+    if os.environ.get("DATABASE_URL"):
+        try:
+            db_writer = DbWriter.from_env()
+            db_writer.ping()
+            agents_path = Path(os.environ.get("AGENT_CONFIG_PATH", "agents.json"))
+            agents = _load_agents_config(agents_path)
+            session_id = db_writer.create_session(
+                started_at=fetched_at,
+                market_json=snapshot,
+                notes=None,
+            )
+            for agent in agents:
+                name = agent.get("name")
+                model_provider = agent.get("model_provider")
+                model = agent.get("model")
+                if not name or not model_provider or not model:
+                    raise ValueError("Agent config entry missing required fields.")
+                agent_id = db_writer.upsert_agent(
+                    agent_name=name,
+                    model_provider=model_provider,
+                    model=model,
+                    last_seen_at=fetched_at,
+                )
+                db_writer.create_run_placeholder(
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    started_at=fetched_at,
+                )
+            print(f"Session {session_id} created with {len(agents)} runs.")
+        except Exception as exc:  # noqa: BLE001
+            print(f"Database not configured or unavailable. Skipping DB writes. ({exc})")
 
 
 if __name__ == "__main__":

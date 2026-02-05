@@ -20,6 +20,7 @@ Schema:
 - The Postgres container initializes the schema from `db/init/*.sql`.
 - Agents do not create schema at runtime.
 - Agents are seeded from `agents.json` during first-time Postgres initialization.
+- The market fetcher creates a session row and run placeholders for each agent.
 
 Notes:
 - The runtime will backfill `ANTHROPIC_API_KEY` from `CLAUDE_API_KEY` and `GOOGLE_API_KEY` from `GEMINI_API_KEY` if needed.
