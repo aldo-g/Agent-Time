@@ -127,12 +127,34 @@ class ConsoleLogger(BaseCallbackHandler):
         self.show_inputs = show_inputs
         self.show_outputs = show_outputs
 
+    def _preview(self, value: Any) -> str:
+        try:
+            preview = str(value)
+        except Exception:
+            preview = "<unprintable>"
+        if len(preview) > 200:
+            preview = preview[:197] + "..."
+        return preview
+
     def _name(self, kwargs: dict[str, Any]) -> str:
         if "name" in kwargs and isinstance(kwargs["name"], str):
             return kwargs["name"]
+        if "run_name" in kwargs and isinstance(kwargs["run_name"], str):
+            return kwargs["run_name"]
+        tool = kwargs.get("tool")
+        if isinstance(tool, str):
+            return tool
+        if tool is not None:
+            name = getattr(tool, "name", None)
+            if isinstance(name, str):
+                return name
         serialized = kwargs.get("serialized")
         if isinstance(serialized, dict):
             name = serialized.get("name") or serialized.get("id")
+            if isinstance(name, str):
+                return name
+        elif serialized is not None:
+            name = getattr(serialized, "name", None) or getattr(serialized, "id", None)
             if isinstance(name, str):
                 return name
         return "unknown"
@@ -141,19 +163,16 @@ class ConsoleLogger(BaseCallbackHandler):
         if not self.show_inputs:
             print(f"[tool:start] {self._name(kwargs)}")
             return
-        preview = str(input_str)
-        if len(preview) > 200:
-            preview = preview[:197] + "..."
-        print(f"[tool:start] {self._name(kwargs)} {preview}")
+        payload = input_str
+        if payload in (None, ""):
+            payload = kwargs.get("input") or kwargs.get("inputs")
+        print(f"[tool:start] {self._name(kwargs)} {self._preview(payload)}")
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:  # noqa: ANN401
         if not self.show_outputs:
             print(f"[tool:end] {self._name(kwargs)}")
             return
-        preview = str(output)
-        if len(preview) > 200:
-            preview = preview[:197] + "..."
-        print(f"[tool:end] {self._name(kwargs)} -> {preview}")
+        print(f"[tool:end] {self._name(kwargs)} -> {self._preview(output)}")
 
     def on_tool_error(self, error: Exception | KeyboardInterrupt, **kwargs: Any) -> None:
         print(f"[tool:error] {self._name(kwargs)}: {error}")
