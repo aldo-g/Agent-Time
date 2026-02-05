@@ -391,7 +391,7 @@ def run_multi_agent(
     run_ids: Dict[str, int] = {}
     try:
         db_writer = DbWriter.from_env()
-        db_writer.ensure_schema()
+        db_writer.ping()
         market_count = len(market_events) if market_events else None
         session_id = db_writer.create_session(
             started_at=session_started_at,
@@ -404,9 +404,6 @@ def run_multi_agent(
                 agent_name=cfg.name,
                 model_provider=cfg.model_provider,
                 model=cfg.model,
-                current_balance=None,
-                cash_balance=None,
-                position_balance=None,
                 last_seen_at=session_started_at,
             )
             agent_ids[cfg.name] = agent_id
@@ -545,6 +542,9 @@ def run_multi_agent(
                             tokens_out=tokens_out,
                             tokens_total=tokens_total,
                             cash_netted=None,
+                            current_balance=None,
+                            cash_balance=None,
+                            position_balance=None,
                             bankroll=None,
                         )
                     except Exception as exc:  # noqa: BLE001
@@ -609,19 +609,17 @@ def run_multi_agent(
         if db_writer is not None:
             try:
                 bankroll = None
-                cash_balance = None
-                positions_value = None
                 if isinstance(portfolio_snapshot, dict):
                     bankroll = portfolio_snapshot.get("bankroll")
                     cash_balance = portfolio_snapshot.get("cash_balance")
-                    positions_value = portfolio_snapshot.get("positions_value")
+                    position_balance = portfolio_snapshot.get("positions_value")
+                else:
+                    cash_balance = None
+                    position_balance = None
                 agent_id = db_writer.upsert_agent(
                     agent_name=cfg.name,
                     model_provider=cfg.model_provider,
                     model=cfg.model,
-                    current_balance=bankroll,
-                    cash_balance=cash_balance,
-                    position_balance=positions_value,
                     last_seen_at=run_finished_at or run_started_at,
                 )
                 if run_id is not None and run_started_at is not None:
@@ -638,6 +636,9 @@ def run_multi_agent(
                         tokens_out=int(tokens_out) if tokens_out is not None else None,
                         tokens_total=int(tokens_total) if tokens_total is not None else None,
                         cash_netted=float(cash_netted) if cash_netted is not None else None,
+                        current_balance=float(bankroll) if bankroll is not None else None,
+                        cash_balance=float(cash_balance) if cash_balance is not None else None,
+                        position_balance=float(position_balance) if position_balance is not None else None,
                         bankroll=float(bankroll) if bankroll is not None else None,
                     )
                 trade_records: list[TradeRecord] = []

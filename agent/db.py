@@ -53,6 +53,12 @@ class DbWriter:
     def connect(self):
         return self._psycopg.connect(self._dsn, autocommit=True)
 
+    def ping(self) -> None:
+        """Verify the database is reachable before doing any writes."""
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1;")
+
     def ensure_schema(self) -> None:
         with self.connect() as conn:
             with conn.cursor() as cur:
@@ -75,9 +81,6 @@ class DbWriter:
                         name TEXT UNIQUE NOT NULL,
                         model_provider TEXT,
                         model TEXT,
-                        current_balance NUMERIC,
-                        cash_balance NUMERIC,
-                        position_balance NUMERIC,
                         last_seen_at TIMESTAMPTZ
                     );
                     """
@@ -99,6 +102,9 @@ class DbWriter:
                         tokens_out INTEGER,
                         tokens_total INTEGER,
                         cash_netted NUMERIC,
+                        current_balance NUMERIC,
+                        cash_balance NUMERIC,
+                        position_balance NUMERIC,
                         bankroll NUMERIC
                     );
                     """
@@ -174,6 +180,15 @@ class DbWriter:
                     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS cash_netted NUMERIC;"
                 )
                 cur.execute(
+                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS current_balance NUMERIC;"
+                )
+                cur.execute(
+                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS cash_balance NUMERIC;"
+                )
+                cur.execute(
+                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS position_balance NUMERIC;"
+                )
+                cur.execute(
                     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS bankroll NUMERIC;"
                 )
                 try:
@@ -197,6 +212,15 @@ class DbWriter:
                 )
                 cur.execute(
                     "ALTER TABLE agents DROP COLUMN IF EXISTS total_token_cost;"
+                )
+                cur.execute(
+                    "ALTER TABLE agents DROP COLUMN IF EXISTS current_balance;"
+                )
+                cur.execute(
+                    "ALTER TABLE agents DROP COLUMN IF EXISTS cash_balance;"
+                )
+                cur.execute(
+                    "ALTER TABLE agents DROP COLUMN IF EXISTS position_balance;"
                 )
                 cur.execute(
                     "ALTER TABLE runs DROP COLUMN IF EXISTS model_price;"
@@ -298,6 +322,9 @@ class DbWriter:
         tokens_out: Optional[int],
         tokens_total: Optional[int],
         cash_netted: Optional[float],
+        current_balance: Optional[float],
+        cash_balance: Optional[float],
+        position_balance: Optional[float],
         bankroll: Optional[float],
     ) -> None:
         with self.connect() as conn:
@@ -317,6 +344,9 @@ class DbWriter:
                         tokens_out = %s,
                         tokens_total = %s,
                         cash_netted = %s,
+                        current_balance = %s,
+                        cash_balance = %s,
+                        position_balance = %s,
                         bankroll = %s
                     WHERE id = %s;
                     """,
@@ -332,6 +362,9 @@ class DbWriter:
                         tokens_out,
                         tokens_total,
                         cash_netted,
+                        current_balance,
+                        cash_balance,
+                        position_balance,
                         bankroll,
                         run_id,
                     ),
@@ -343,9 +376,6 @@ class DbWriter:
         agent_name: str,
         model_provider: str,
         model: str,
-        current_balance: Optional[float],
-        cash_balance: Optional[float],
-        position_balance: Optional[float],
         last_seen_at: datetime,
     ) -> int:
         with self.connect() as conn:
@@ -356,19 +386,13 @@ class DbWriter:
                         name,
                         model_provider,
                         model,
-                        current_balance,
-                        cash_balance,
-                        position_balance,
                         last_seen_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s)
                     ON CONFLICT (name)
                     DO UPDATE SET
                         model_provider = EXCLUDED.model_provider,
                         model = EXCLUDED.model,
-                        current_balance = COALESCE(EXCLUDED.current_balance, agents.current_balance),
-                        cash_balance = COALESCE(EXCLUDED.cash_balance, agents.cash_balance),
-                        position_balance = COALESCE(EXCLUDED.position_balance, agents.position_balance),
                         last_seen_at = EXCLUDED.last_seen_at
                     RETURNING id;
                     """,
@@ -376,9 +400,6 @@ class DbWriter:
                         agent_name,
                         model_provider,
                         model,
-                        current_balance,
-                        cash_balance,
-                        position_balance,
                         last_seen_at,
                     ),
                 )
@@ -401,6 +422,9 @@ class DbWriter:
         tokens_out: Optional[int],
         tokens_total: Optional[int],
         cash_netted: Optional[float],
+        current_balance: Optional[float],
+        cash_balance: Optional[float],
+        position_balance: Optional[float],
         bankroll: Optional[float],
     ) -> int:
         with self.connect() as conn:
@@ -421,9 +445,12 @@ class DbWriter:
                         tokens_out,
                         tokens_total,
                         cash_netted,
+                        current_balance,
+                        cash_balance,
+                        position_balance,
                         bankroll
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id;
                     """,
                     (
@@ -440,6 +467,9 @@ class DbWriter:
                         tokens_out,
                         tokens_total,
                         cash_netted,
+                        current_balance,
+                        cash_balance,
+                        position_balance,
                         bankroll,
                     ),
                 )

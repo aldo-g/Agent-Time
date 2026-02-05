@@ -45,9 +45,6 @@ Goal: capture agent → runs → trades with token costs, tool usage, and portfo
 - `name` (unique)
 - `model_provider`
 - `model`
-- `current_balance`
-- `cash_balance`
-- `position_balance`
 - `last_seen_at`
 
 ### runs
@@ -64,6 +61,9 @@ Goal: capture agent → runs → trades with token costs, tool usage, and portfo
 - `tokens_out`
 - `tokens_total`
 - `cash_netted`
+- `current_balance`
+- `cash_balance`
+- `position_balance`
 - `bankroll`
 
 ### trades
@@ -82,7 +82,7 @@ Goal: capture agent → runs → trades with token costs, tool usage, and portfo
 - `created_at`
 
 Notes:
-- `agents` is mostly static metadata + rolling balances; `runs` and `trades` hold history.
+- `agents` is static config metadata; `runs` and `trades` hold history.
 - We store failed trade attempts to preserve auditability.
 - Token counts (`tokens_in`, `tokens_out`) are tracked; costs are not stored.
 

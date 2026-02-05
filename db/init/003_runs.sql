@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS runs (
     tokens_out INTEGER,
     tokens_total INTEGER,
     cash_netted NUMERIC,
+    current_balance NUMERIC,
+    cash_balance NUMERIC,
+    position_balance NUMERIC,
     bankroll NUMERIC
 );
 
