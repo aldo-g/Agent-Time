@@ -21,9 +21,15 @@ while [[ ! -f "${CACHE_PATH}" ]]; do
   elapsed=$((elapsed + SLEEP_INTERVAL))
 done
 
+VERBOSE_FLAG=()
+if [[ "${AGENT_VERBOSE:-}" =~ ^(1|true|yes)$ ]]; then
+  VERBOSE_FLAG=(--verbose)
+fi
+
 python -m agent.multi_runner \
   --agent "${AGENT_NAME}" \
   --skip-market-fetch \
   --market-cache "${CACHE_PATH}" \
   --max-attempts "${AGENT_MAX_ATTEMPTS:-2}" \
-  --results "${AGENT_RESULTS_PATH:-/results/multi_agent_runs.jsonl}"
+  --results "${AGENT_RESULTS_PATH:-/results/multi_agent_runs.jsonl}" \
+  "${VERBOSE_FLAG[@]}"

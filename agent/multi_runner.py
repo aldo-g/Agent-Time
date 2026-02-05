@@ -399,6 +399,7 @@ def run_multi_agent(
     market_limit: int,
     market_cache_path: Path | None = None,
     skip_market_fetch: bool = False,
+    max_attempts: int = 2,
     verbose: bool = False,
 ) -> None:
     # Ensure a shared MANIFOLD_API_KEY cannot leak across agents.
@@ -478,7 +479,8 @@ def run_multi_agent(
                 pre_cash_balance = pre_snapshot.cash_balance
             except Exception:  # noqa: BLE001
                 pre_cash_balance = None
-            for attempt in range(3):
+            attempts = max(1, int(max_attempts))
+            for attempt in range(attempts):
                 if attempt > 0 and db_writer is not None and session_id is not None and agent_id is not None:
                     run_id = db_writer.create_run_placeholder(
                         session_id=session_id,
@@ -539,7 +541,7 @@ def run_multi_agent(
                     if attempt == 0:
                         print(f"Retrying agent '{cfg.name}' after error: {error}")
                         time.sleep(2)
-                    elif attempt < 2:
+                    elif attempt < attempts - 1:
                         print(f"Retrying agent '{cfg.name}' after error: {error}")
                         time.sleep(2)
                     if cfg.model_provider.lower() in {"gemini", "google"}:
@@ -626,6 +628,18 @@ def run_multi_agent(
             "cash_netted": cash_netted,
         }
         _persist_result(record, results_path)
+        if verbose:
+            print("\n--- Agent Output ---")
+            if isinstance(output, str):
+                print(output)
+            else:
+                print(output)
+            if tool_errors:
+                print("\n--- Tool Errors ---")
+                for tool_error in tool_errors:
+                    print(f"- {tool_error}")
+            if not success and error:
+                print(f"\n--- Agent Error ---\n{error}")
         trades = _parse_trades_from_output(output)
         if captured_trades:
             for entry in captured_trades:
@@ -790,6 +804,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="File path for the shared market snapshot JSON.",
     )
     parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=int(os.environ.get("AGENT_MAX_ATTEMPTS", "2")),
+        help="Number of attempts per agent run before giving up (default: 2).",
+    )
+    parser.add_argument(
         "--skip-market-fetch",
         action="store_true",
         help="Use the shared market cache file instead of fetching markets live.",
@@ -855,6 +875,7 @@ def main() -> None:
         market_limit=args.market_limit,
         market_cache_path=Path(args.market_cache),
         skip_market_fetch=args.skip_market_fetch,
+        max_attempts=args.max_attempts,
         verbose=args.verbose,
     )
 

@@ -16,7 +16,7 @@ services:
     build: .
     command: ["python", "-m", "agent.fetch_markets", "--market-limit", "${AGENT_MARKET_CACHE_LIMIT:-25}", "--cache-path", "/data/shared_markets.json"]
     environment:
-      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://agent_time:agent_time@postgres:5432/agent_time}
+      DATABASE_URL: ${DATABASE_URL}
       PREDICT_ARENA_MARKET_CACHE: /data/shared_markets.json
       AGENT_CONFIG_PATH: /app/agents.json
     volumes:
@@ -29,7 +29,7 @@ services:
     build: .
     command: ["/app/scripts/run_agent.sh", "gpt-runner"]
     environment:
-      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://agent_time:agent_time@postgres:5432/agent_time}
+      DATABASE_URL: ${DATABASE_URL}
       AGENT_SKIP_SCHEMA_INIT: "1"
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       MANIFOLD_API_KEY_OPENAI: ${MANIFOLD_API_KEY_OPENAI}
@@ -57,7 +57,7 @@ services:
     build: .
     command: ["/app/scripts/run_agent.sh", "claude-runner"]
     environment:
-      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://agent_time:agent_time@postgres:5432/agent_time}
+      DATABASE_URL: ${DATABASE_URL}
       AGENT_SKIP_SCHEMA_INIT: "1"
       CLAUDE_API_KEY: ${CLAUDE_API_KEY}
       MANIFOLD_API_KEY_CLAUDE: ${MANIFOLD_API_KEY_CLAUDE}
@@ -85,7 +85,7 @@ services:
     build: .
     command: ["/app/scripts/run_agent.sh", "gemini-runner"]
     environment:
-      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://agent_time:agent_time@postgres:5432/agent_time}
+      DATABASE_URL: ${DATABASE_URL}
       AGENT_SKIP_SCHEMA_INIT: "1"
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       MANIFOLD_API_KEY_GEMINI: ${MANIFOLD_API_KEY_GEMINI}
