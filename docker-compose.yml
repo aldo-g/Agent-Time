@@ -14,11 +14,12 @@ services:
 
   market-fetcher:
     build: .
-    command: ["python", "-m", "agent.fetch_markets", "--market-limit", "${AGENT_MARKET_CACHE_LIMIT:-25}", "--cache-path", "/data/shared_markets.json"]
+    command: ["python", "-m", "agent.fetch_markets", "--market-limit", "${AGENT_MARKET_CACHE_LIMIT:-10}", "--cache-path", "/data/shared_markets.json"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
       PREDICT_ARENA_MARKET_CACHE: /data/shared_markets.json
       AGENT_CONFIG_PATH: /app/agents.json
+      AGENT_DISABLE_DOTENV: "1"
     volumes:
       - ./data:/data
       - ./agents.json:/app/agents.json:ro
@@ -31,6 +32,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       AGENT_SKIP_SCHEMA_INIT: "1"
+      AGENT_DISABLE_DOTENV: "1"
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       MANIFOLD_API_KEY_OPENAI: ${MANIFOLD_API_KEY_OPENAI}
       PREDICT_ARENA_MARKET_CACHE: /data/shared_markets.json
@@ -59,6 +61,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       AGENT_SKIP_SCHEMA_INIT: "1"
+      AGENT_DISABLE_DOTENV: "1"
       CLAUDE_API_KEY: ${CLAUDE_API_KEY}
       MANIFOLD_API_KEY_CLAUDE: ${MANIFOLD_API_KEY_CLAUDE}
       PREDICT_ARENA_MARKET_CACHE: /data/shared_markets.json
@@ -87,6 +90,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       AGENT_SKIP_SCHEMA_INIT: "1"
+      AGENT_DISABLE_DOTENV: "1"
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       MANIFOLD_API_KEY_GEMINI: ${MANIFOLD_API_KEY_GEMINI}
       PREDICT_ARENA_MARKET_CACHE: /data/shared_markets.json

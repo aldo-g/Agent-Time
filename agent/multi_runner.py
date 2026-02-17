@@ -30,7 +30,8 @@ DEFAULT_CONFIG_PATH = os.environ.get("AGENT_CONFIG_PATH", "agents.json")
 DEFAULT_RESULTS_PATH = os.environ.get("AGENT_RESULTS_PATH", "results/multi_agent_runs.jsonl")
 MARKET_CACHE_ENV = "PREDICT_ARENA_MARKET_CACHE"
 DEFAULT_MARKET_CACHE_PATH = Path(os.environ.get(MARKET_CACHE_ENV, "data/shared_markets.json"))
-DEFAULT_MARKET_LIMIT = int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "25"))
+DEFAULT_MARKET_LIMIT = int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "10"))
+DEFAULT_WALLET_RETRY_LIMIT = int(os.environ.get("AGENT_WALLET_RETRY_LIMIT", "5"))
 PROVIDER_LABELS = {
     "openai": "OpenAI",
     "anthropic": "Claude",
@@ -55,6 +56,7 @@ class AgentConfig:
     model: str
     manifold_key: str | None = None
     manifold_key_env: str | None = None
+    expected_wallet: str | None = None
     instruction_override: str | None = None
     temperature: float | None = None
     max_steps: int | None = None
@@ -71,6 +73,7 @@ class AgentConfig:
             model=str(payload["model"]),
             manifold_key=payload.get("manifold_key"),
             manifold_key_env=payload.get("manifold_key_env"),
+            expected_wallet=payload.get("expected_wallet"),
             instruction_override=payload.get("instruction_override"),
             temperature=payload.get("temperature"),
             max_steps=payload.get("max_steps"),
@@ -281,6 +284,38 @@ def _parse_trades_from_output(output: object) -> List[Dict[str, str]]:
     return filtered
 
 
+def _has_declared_trade_lines(output: object) -> bool:
+    if not isinstance(output, str):
+        return False
+    if _parse_trades_from_output(output):
+        return True
+    lowered = output.lower()
+    if "concrete trade" in lowered:
+        return True
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        line_lower = line.lower()
+        if re.search(r"^\s*trade\s*-\s*", line, flags=re.IGNORECASE):
+            return True
+        if line_lower.startswith("action:") and any(
+            token in line_lower for token in ("bet", "buy", "sell", "placed", "execute", "wager")
+        ):
+            return True
+        if re.search(r"\bplaced\s+(a\s+)?bet\b", line_lower):
+            return True
+        if re.search(r"\bwagered\s+[\d.,]+\s*(mana|\$)", line_lower):
+            return True
+        if re.search(r"\bexecuted\s+trade\b", line_lower):
+            return True
+        if re.search(r"\bbet\s+\$?\d", line_lower):
+            return True
+        if re.search(r"\bbuy\s+\$?\d", line_lower):
+            return True
+    return False
+
+
 def _extract_no_trade_reason(output: object) -> str | None:
     """Return a short reason for no trades if one can be inferred from the output text."""
     if not isinstance(output, str):
@@ -468,11 +503,13 @@ def run_multi_agent(
         tokens_total: int | None = None
         run_id = run_ids.get(cfg.name) if db_writer is not None else None
         agent_id = agent_ids.get(cfg.name) if db_writer is not None else None
+        expected_wallet = cfg.expected_wallet or ""
         with (
             _temporary_env("MANIFOLD_API_KEY", manifold_key),
             _temporary_env("AGENT_NAME", cfg.name),
             _temporary_env("AGENT_PROVIDER", cfg.model_provider),
             _temporary_env("AGENT_MODEL", cfg.model),
+            _temporary_env("AGENT_EXPECTED_WALLET", expected_wallet),
         ):
             try:
                 pre_snapshot = fetch_portfolio_snapshot(None)
@@ -480,8 +517,11 @@ def run_multi_agent(
             except Exception:  # noqa: BLE001
                 pre_cash_balance = None
             attempts = max(1, int(max_attempts))
-            for attempt in range(attempts):
-                if attempt > 0 and db_writer is not None and session_id is not None and agent_id is not None:
+            wallet_retry_limit = max(1, int(DEFAULT_WALLET_RETRY_LIMIT))
+            attempt = 0
+            wallet_retries = 0
+            while attempt < attempts:
+                if (attempt > 0 or wallet_retries > 0) and db_writer is not None and session_id is not None and agent_id is not None:
                     run_id = db_writer.create_run_placeholder(
                         session_id=session_id,
                         agent_id=agent_id,
@@ -499,6 +539,15 @@ def run_multi_agent(
                 captured_trades = None
                 tool_errors = None
                 try:
+                    if expected_wallet:
+                        preflight_snapshot = fetch_portfolio_snapshot(None)
+                        observed_wallet = (preflight_snapshot.wallet or "").strip()
+                        if observed_wallet.lower() != expected_wallet.strip().lower():
+                            raise RuntimeError(
+                                f"Expected wallet '{expected_wallet}' but saw '{observed_wallet}' in preflight."
+                            )
+                        if pre_cash_balance is None:
+                            pre_cash_balance = preflight_snapshot.cash_balance
                     result = run_daily_session(
                         instruction,
                         model=cfg.model,
@@ -531,6 +580,15 @@ def run_multi_agent(
                         tokens_in = result.get("tokens_in")
                         tokens_out = result.get("tokens_out")
                         tokens_total = result.get("tokens_total")
+                    declared_trade = _has_declared_trade_lines(output)
+                    trade_tool_called = any(
+                        tool in (tool_calls_all or [])
+                        for tool in ("manifold_place_bet", "manifold_sell_position")
+                    )
+                    if declared_trade and not trade_tool_called:
+                        raise RuntimeError(
+                            "Trade guard: model reported Trade - lines without calling a trade tool."
+                        )
                     success = True
                     error = None  # clear any previous attempt errors
                 except Exception as exc:  # noqa: BLE001
@@ -538,6 +596,13 @@ def run_multi_agent(
                     error = msg or f"{exc.__class__.__name__}"
                     run_finished_at = datetime.now(timezone.utc)
                     run_duration_ms = int((run_finished_at - run_started_at).total_seconds() * 1000)
+                    lowered_error = error.lower()
+                    if "wallet mismatch" in lowered_error or "expected wallet" in lowered_error:
+                        wallet_retries += 1
+                        if wallet_retries < wallet_retry_limit:
+                            print(f"Retrying agent '{cfg.name}' after wallet mismatch: {error}")
+                            time.sleep(2)
+                            continue
                     if attempt == 0:
                         print(f"Retrying agent '{cfg.name}' after error: {error}")
                         time.sleep(2)
@@ -552,6 +617,7 @@ def run_multi_agent(
                                 "Check your plan/usage limits and retry later."
                             )
                     print(f"Agent '{cfg.name}' failed: {error}")
+                attempt += 1
                 if run_finished_at is None:
                     run_finished_at = datetime.now(timezone.utc)
                 if run_duration_ms is None and run_started_at is not None:

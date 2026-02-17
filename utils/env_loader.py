@@ -12,6 +12,9 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 def _load() -> None:
+    disabled = os.environ.get("AGENT_DISABLE_DOTENV", "").strip().lower() in {"1", "true", "yes"}
+    if disabled:
+        return
     if load_dotenv is None:
         _load_manual()
         return

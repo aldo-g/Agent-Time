@@ -213,8 +213,11 @@ def lookup_answer_id(details: MarketDetails, label: str) -> Optional[str]:
     """Best-effort match from a user-provided label to a Manifold answer id."""
     if not label:
         return None
-    desired = label.strip().lower()
+    raw = label.strip()
+    desired = raw.lower()
     for answer in details.answers:
+        if answer.answer_id and answer.answer_id == raw:
+            return answer.answer_id
         if answer.answer_id and answer.label.strip().lower() == desired:
             return answer.answer_id
     return None

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
+import time
 from typing import Any, List, Optional
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -16,6 +18,9 @@ class ToolCallTracker(BaseCallbackHandler):
         self.failed_tools: List[str] = []
         self.trade_outputs: List[str] = []
         self.failed_tool_errors: List[str] = []
+        self.wallets_seen: set[str] = set()
+        self.wallets_by_tool: dict[str, str] = {}
+        self.wallet_mismatch_error: Optional[str] = None
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:  # noqa: ANN401
         name = self._extract_tool_name(kwargs)
@@ -30,6 +35,16 @@ class ToolCallTracker(BaseCallbackHandler):
             ):
                 self.failed_tools.append(name)
                 self.failed_tool_errors.append(f"{name}: {output}")
+            if name in {"manifold_portfolio", "portfolio_analytics"} and isinstance(output, str):
+                wallet = self._extract_wallet(output)
+                if wallet:
+                    self.wallets_seen.add(wallet)
+                    self.wallets_by_tool[name] = wallet
+                    if len(self.wallets_seen) > 1 and self.wallet_mismatch_error is None:
+                        self.wallet_mismatch_error = (
+                            "Wallet mismatch across tools: "
+                            + ", ".join(sorted(self.wallets_seen))
+                        )
 
     def on_tool_error(self, error: Exception | KeyboardInterrupt, **kwargs: Any) -> None:
         name = self._extract_tool_name(kwargs)
@@ -44,11 +59,31 @@ class ToolCallTracker(BaseCallbackHandler):
             return kwargs["name"]
         if "run_name" in kwargs and isinstance(kwargs["run_name"], str):
             return kwargs["run_name"]
-        serialized = kwargs.get("serialized")
-        if isinstance(serialized, dict):
-            name = serialized.get("name")
+        tool = kwargs.get("tool")
+        if isinstance(tool, str):
+            return tool
+        if tool is not None:
+            name = getattr(tool, "name", None)
             if isinstance(name, str):
                 return name
+        serialized = kwargs.get("serialized")
+        if isinstance(serialized, dict):
+            name = serialized.get("name") or serialized.get("id")
+            if isinstance(name, str):
+                return name
+        if isinstance(serialized, str):
+            return serialized
+        if serialized is not None:
+            name = getattr(serialized, "name", None) or getattr(serialized, "id", None)
+            if isinstance(name, str):
+                return name
+        return None
+
+    @staticmethod
+    def _extract_wallet(output: str) -> Optional[str]:
+        match = re.search(r"Wallet:\\s*([\\w\\-]+)", output)
+        if match:
+            return match.group(1)
         return None
 
 
@@ -72,6 +107,21 @@ class TokenUsageTracker(BaseCallbackHandler):
         self.usage.prompt_tokens += usage.prompt_tokens
         self.usage.completion_tokens += usage.completion_tokens
         self.usage.total_tokens += usage.total_tokens
+
+
+class StepDelay(BaseCallbackHandler):
+    """Sleep briefly before each LLM call to throttle request rate."""
+
+    def __init__(self, delay_sec: float) -> None:
+        try:
+            delay = float(delay_sec)
+        except Exception:
+            delay = 0.0
+        self.delay_sec = max(0.0, delay)
+
+    def on_llm_start(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        if self.delay_sec:
+            time.sleep(self.delay_sec)
 
 
 def _extract_token_usage(response: Any) -> TokenUsage | None:  # noqa: ANN401
@@ -161,12 +211,12 @@ class ConsoleLogger(BaseCallbackHandler):
 
     def on_tool_start(self, serialized: Any, input_str: Any, **kwargs: Any) -> None:  # noqa: ANN401
         if not self.show_inputs:
-            print(f"[tool:start] {self._name(kwargs)}")
+            print(f"[tool:start] {self._name({**kwargs, 'serialized': serialized})}")
             return
         payload = input_str
         if payload in (None, ""):
             payload = kwargs.get("input") or kwargs.get("inputs")
-        print(f"[tool:start] {self._name(kwargs)} {self._preview(payload)}")
+        print(f"[tool:start] {self._name({**kwargs, 'serialized': serialized})} {self._preview(payload)}")
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:  # noqa: ANN401
         if not self.show_outputs:

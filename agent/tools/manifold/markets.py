@@ -16,7 +16,7 @@ from .limits import _enforce_market_limit
 from .summaries import _summarize_events
 
 
-def _run_fetch_markets(limit: int = 25, offset: int = 0) -> str:
+def _run_fetch_markets(limit: int = 10, offset: int = 0) -> str:
     try:
         limit = int(limit)
     except Exception:
@@ -94,6 +94,10 @@ def _run_event_timer(market_id: str) -> str:
 
 
 def _run_market_history(market_id: str, limit: int = 200) -> str:
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 200
     allowed, normalized, msg = _enforce_market_limit(market_id)
     if not allowed:
         return msg or "Market limit reached."
@@ -122,4 +126,3 @@ def _run_market_history(market_id: str, limit: int = 200) -> str:
             bet_time = datetime.fromtimestamp(bet.timestamp / 1000, tz=timezone.utc).isoformat()
             lines.append(f"- {bet_time}: {prob:.2%}")
     return "\n".join(lines)
-

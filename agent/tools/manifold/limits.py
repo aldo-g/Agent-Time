@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import urllib.parse
 
 from . import config
@@ -13,6 +14,22 @@ def _normalize_market_identifier(market_id: str) -> str:
     if not market_id:
         return market_id
     cleaned = market_id.strip().strip(".,;:!?)\"]'")
+    if cleaned.startswith("{"):
+        try:
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            for key in ("market_id", "marketId", "id"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    cleaned = value.strip()
+                    break
+    lower = cleaned.lower()
+    for prefix in ("market_id=", "market_id:", "id=", "id:"):
+        if lower.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip().strip(".,;:!?)\"]'")
+            break
     if "manifold.markets" in cleaned:
         parsed = urllib.parse.urlparse(cleaned)
         path = parsed.path.strip("/")
@@ -43,4 +60,3 @@ def _enforce_market_limit(market_id: str) -> tuple[bool, str, str | None]:
         )
     _INSPECTED_MARKETS.add(normalized)
     return True, normalized, None
-

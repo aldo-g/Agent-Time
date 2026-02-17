@@ -36,6 +36,8 @@ def _resolve_market_prob(details: MarketDetails, outcome: str, answer: Optional[
     if not lookup_label:
         return None
     for option in details.answers:
+        if option.answer_id and option.answer_id == lookup_label:
+            return option.probability
         if option.label.strip().lower() == lookup_label.strip().lower():
             return option.probability
     return None

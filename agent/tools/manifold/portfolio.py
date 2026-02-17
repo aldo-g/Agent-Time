@@ -44,7 +44,16 @@ def _run_portfolio(wallet: str | None = None, required: bool = False) -> str:
 
 
 def _run_portfolio_analytics(max_positions: int = 5) -> str:
-    snapshot = fetch_portfolio_snapshot(None)
+    try:
+        max_positions = int(max_positions)
+    except Exception:
+        max_positions = 5
+    if max_positions < 1:
+        max_positions = 5
+    try:
+        snapshot = fetch_portfolio_snapshot(None)
+    except Exception as exc:  # noqa: BLE001
+        return f"Unable to fetch portfolio analytics: {exc}"
     bankroll, gross_exposure = _estimate_bankroll(snapshot)
     cash = snapshot.cash_balance or 0.0
     lines = [
@@ -68,8 +77,12 @@ def _run_portfolio_analytics(max_positions: int = 5) -> str:
                     warnings.append(
                         f"Position '{position.question}' exceeds {config.RISK_MAX_SINGLE_POSITION_PCT:.0%} of bankroll."
                     )
+            meta_bits = [f"id={position.market_id}"]
+            if position.slug:
+                meta_bits.append(f"slug={position.slug}")
+            meta = " ".join(meta_bits)
             lines.append(
-                f"- {position.question} [{position.outcome}] {position.shares:.2f} shares ({value_note})"
+                f"- {position.question} [{position.outcome}] {position.shares:.2f} shares ({value_note}) {meta}"
             )
     if bankroll > 0 and gross_exposure / bankroll > config.RISK_MAX_GROSS_EXPOSURE_PCT:
         warnings.append(
@@ -86,13 +99,36 @@ def _run_portfolio_analytics(max_positions: int = 5) -> str:
 
 def _run_risk_gate(
     *,
-    market_id: str,
-    outcome: str,
-    amount: float,
-    belief_prob: float,
+    market_id: str | None,
+    outcome: str | None,
+    amount: float | None,
+    belief_prob: float | None = None,
     market_prob: Optional[float] = None,
     bankroll: Optional[float] = None,
 ) -> str:
+    if not market_id or not outcome or amount is None or belief_prob is None:
+        return (
+            "Risk gate input missing required fields. "
+            "Provide market_id, outcome, amount, and belief_prob."
+        )
+    try:
+        amount = float(amount)
+    except Exception:
+        return "Risk gate input invalid: amount must be a number."
+    try:
+        belief_prob = float(belief_prob)
+    except Exception:
+        return "Risk gate input invalid: belief_prob must be a number."
+    if market_prob is not None:
+        try:
+            market_prob = float(market_prob)
+        except Exception:
+            market_prob = None
+    if bankroll is not None:
+        try:
+            bankroll = float(bankroll)
+        except Exception:
+            bankroll = None
     snapshot = None
     if bankroll is None:
         snapshot = fetch_portfolio_snapshot(None)
@@ -143,4 +179,3 @@ def _run_risk_gate(
     else:
         lines.append("Risk gate: PASS")
     return "\n".join(lines)
-

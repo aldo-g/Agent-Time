@@ -45,7 +45,11 @@ def _summarize_position(position: PortfolioPosition) -> str:
         bits.append(f"{mark_price * 100:.1f}%")
     if value is not None:
         bits.append(f"${value:,.0f}")
-    return f"{position.question} [{position.outcome}] ({', '.join(bits)})"
+    meta_bits = [f"id={position.market_id}"]
+    if position.slug:
+        meta_bits.append(f"slug={position.slug}")
+    meta = " ".join(meta_bits)
+    return f"{position.question} [{position.outcome}] ({', '.join(bits)}) {meta}"
 
 
 def _summarize_portfolio(snapshot: PortfolioSnapshot) -> str:
@@ -67,4 +71,3 @@ def _summarize_portfolio(snapshot: PortfolioSnapshot) -> str:
         if extra > 0:
             lines.append(f"... plus {extra} more.")
     return "\n".join(lines)
-

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 import utils.env_loader as env_loader  # noqa: F401
-from agent.callbacks import ConsoleLogger, TokenUsageTracker, ToolCallTracker
+from agent.callbacks import ConsoleLogger, StepDelay, TokenUsageTracker, ToolCallTracker
 from agent.tools import build_agent_tools
 from agent.tools.manifold import reset_inspected_markets
 from langchain.agents import AgentExecutor, create_tool_calling_agent, create_react_agent
@@ -21,6 +21,10 @@ DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_PROVIDER = os.environ.get("AGENT_LLM_PROVIDER", "openai").lower()
 DEFAULT_MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "8"))
 DEFAULT_TEMPERATURE = float(os.environ.get("AGENT_TEMPERATURE", "0.2"))
+DEFAULT_GEMINI_TIMEOUT = os.environ.get("GEMINI_TIMEOUT", "60")
+DEFAULT_GEMINI_MAX_RETRIES = os.environ.get("GEMINI_MAX_RETRIES", "6")
+DEFAULT_STEP_DELAY_SEC = os.environ.get("AGENT_STEP_DELAY_SEC", "0")
+DEFAULT_ANTHROPIC_STEP_DELAY_SEC = os.environ.get("ANTHROPIC_STEP_DELAY_SEC", "0.6")
 DEFAULT_INSTRUCTION = os.environ.get(
     "AGENT_INSTRUCTION",
     (
@@ -52,6 +56,27 @@ def _ensure_provider_env(provider: str) -> None:
             os.environ[target] = alias_value
 
 
+def _coerce_float(value: object, default: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _coerce_int(value: object, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _resolve_step_delay(provider: str) -> float:
+    delay = _coerce_float(DEFAULT_STEP_DELAY_SEC, 0.0)
+    if provider.lower() in {"anthropic", "claude"}:
+        delay = max(delay, _coerce_float(DEFAULT_ANTHROPIC_STEP_DELAY_SEC, 0.0))
+    return max(0.0, delay)
+
+
 def _build_llm(model: str, temperature: float, provider: str):
     normalized = provider.lower()
     _ensure_provider_env(normalized)
@@ -79,7 +104,13 @@ def _build_llm(model: str, temperature: float, provider: str):
             raise RuntimeError(
                 "langchain-google-genai is not installed. Install it with `pip install langchain-google-genai`."
             ) from exc
-        return ChatGoogleGenerativeAI(model=model, temperature=temperature)
+        return ChatGoogleGenerativeAI(
+            model=model,
+            temperature=temperature,
+            convert_system_message_to_human=True,
+            timeout=_coerce_float(DEFAULT_GEMINI_TIMEOUT, 60.0),
+            max_retries=_coerce_int(DEFAULT_GEMINI_MAX_RETRIES, 6),
+        )
     raise ValueError(f"Unsupported LLM provider '{provider}'.")
 
 
@@ -195,11 +226,24 @@ def run_daily_session(
     tracker = ToolCallTracker()
     token_tracker = TokenUsageTracker()
     callbacks = [tracker, token_tracker]
+    step_delay = _resolve_step_delay(provider)
+    if step_delay > 0:
+        callbacks.append(StepDelay(step_delay))
     if verbose:
         callbacks.append(ConsoleLogger())
     started_at = datetime.now(timezone.utc)
     start_time = time.perf_counter()
-    result = executor.invoke(inputs, config={"callbacks": callbacks})
+    try:
+        result = executor.invoke(inputs, config={"callbacks": callbacks})
+    except Exception:  # noqa: BLE001
+        logging.exception("Agent execution failed.")
+        raise
+    if tracker.wallet_mismatch_error:
+        raise RuntimeError(tracker.wallet_mismatch_error)
+    expected_wallet = os.environ.get("AGENT_EXPECTED_WALLET") or None
+    if expected_wallet and tracker.wallets_seen and expected_wallet not in tracker.wallets_seen:
+        seen = ", ".join(sorted(tracker.wallets_seen))
+        raise RuntimeError(f"Expected wallet '{expected_wallet}' but saw {seen}.")
     if token_tracker.usage.total_tokens == 0:
         logging.warning(
             "Token usage metadata missing for %s:%s. Tokens in/out will be 0 for this run.",

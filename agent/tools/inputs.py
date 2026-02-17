@@ -28,7 +28,7 @@ ProbBounded = confloat(gt=0.0, lt=1.0)
 class FetchMarketsInput(BaseModel):
     """Inputs for the market discovery tool."""
 
-    limit: Int1To200 = Field(25, description="Number of events to inspect (max 200).")
+    limit: Int1To200 = Field(10, description="Number of events to inspect (max 200).")
     offset: NonNegativeInt = Field(0, description="Pagination offset (multiples of limit).")
 
     @validator("limit", pre=True)
@@ -227,11 +227,11 @@ class EventTimerInput(BaseModel):
 class RiskGateInput(BaseModel):
     """Inputs for the risk gate tool."""
 
-    market_id: str = Field(..., description="Manifold market id or slug.")
-    outcome: str = Field(..., description="YES/NO or answer label.")
-    amount: PositiveAmount = Field(..., description="Proposed Mana to wager.")
-    belief_prob: ProbBounded = Field(..., description="Agent's subjective probability (0-1).")
-    market_prob: ProbBounded | None = Field(default=None, description="Current market probability (0-1).")
-    bankroll: PositiveAmount | None = Field(
+    market_id: str | None = Field(default=None, description="Manifold market id or slug.")
+    outcome: str | None = Field(default=None, description="YES/NO or answer label.")
+    amount: float | None = Field(default=None, description="Proposed Mana to wager.")
+    belief_prob: float | None = Field(default=None, description="Agent's subjective probability (0-1).")
+    market_prob: float | None = Field(default=None, description="Current market probability (0-1).")
+    bankroll: float | None = Field(
         default=None, description="Optional bankroll override; uses cash + positions if omitted."
     )

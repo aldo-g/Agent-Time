@@ -29,7 +29,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--market-limit",
         type=int,
-        default=int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "25")),
+        default=int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "10")),
         help="Number of markets to fetch and cache.",
     )
     parser.add_argument(

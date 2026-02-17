@@ -52,6 +52,10 @@ def _run_search(query: str, limit: int = 5) -> str:
     if search_web is None:
         raise RuntimeError("Web search tool unavailable. Install duckduckgo_search to enable it.")
     try:
+        limit = int(limit)
+    except Exception:
+        limit = 5
+    try:
         results = search_web(query, max_results=limit)
     except WebSearchUnavailable as exc:  # pragma: no cover - optional dependency
         raise RuntimeError(str(exc)) from exc
@@ -92,6 +96,10 @@ def _run_rss_fetch(
     limit: int = 10,
     sources: Optional[str | List[str]] = None,
 ) -> str:
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 10
     feeds = _load_rss_sources(sources)
     if not feeds:
         raise RuntimeError("No RSS feeds configured. Set NEWS_RSS_URLS or pass sources=[].")
@@ -123,6 +131,10 @@ def _run_rss_fetch(
 
 
 def _run_bluesky_search(query: str, limit: int = 10) -> str:
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 10
     base_url = BLUESKY_AUTH_API_URL if BLUESKY_AUTH_TOKEN else BLUESKY_API_URL
     endpoint = f"{base_url.rstrip('/')}/xrpc/app.bsky.feed.searchPosts"
     params = {"q": query, "limit": limit}
@@ -191,6 +203,10 @@ class _HTMLTextExtractor(HTMLParser):
 
 
 def _run_web_scrape(url: str, max_chars: int = 2000) -> str:
+    try:
+        max_chars = int(max_chars)
+    except Exception:
+        max_chars = 2000
     cleaned = (url or "").strip()
     if not cleaned.lower().startswith(("http://", "https://")):
         return f"Invalid URL. Provide a full http(s) URL. Got: {cleaned or '<empty>'}"
