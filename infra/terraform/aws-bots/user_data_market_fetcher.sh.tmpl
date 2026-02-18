@@ -1,0 +1,84 @@
+#!/bin/bash
+set -euxo pipefail
+
+dnf -y update
+dnf -y install docker awscli jq
+systemctl enable --now docker
+
+mkdir -p /opt/agent-time/data
+
+cat >/usr/local/bin/agent-time-market-fetcher-run <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+CACHE_PATH="/opt/agent-time/data/shared_markets.json"
+S3_URI="s3://${shared_market_cache_bucket}/${shared_market_cache_object_key}"
+
+aws ecr get-login-password --region "${aws_region}" | docker login --username AWS --password-stdin "${ecr_registry}"
+docker pull "${ecr_image_uri}"
+docker rm -f agent-time-market-fetcher >/dev/null 2>&1 || true
+
+docker run --rm --name agent-time-market-fetcher \
+  --log-driver=awslogs \
+  --log-opt awslogs-region=${aws_region} \
+  --log-opt awslogs-group=${log_group_name} \
+  --log-opt awslogs-stream=${log_stream_name} \
+  -v /opt/agent-time/data:/data \
+  "${ecr_image_uri}" \
+  python -m agent.fetch_markets \
+    --market-limit "${market_limit}" \
+    --cache-path /data/shared_markets.json
+
+if [ ! -s "$${CACHE_PATH}" ]; then
+  echo "Fetcher did not produce cache file at $${CACHE_PATH}."
+  exit 1
+fi
+
+aws s3 cp "$${CACHE_PATH}" "$${S3_URI}"
+echo "Uploaded shared market cache to $${S3_URI}."
+SCRIPT
+
+chmod +x /usr/local/bin/agent-time-market-fetcher-run
+
+cat >/etc/systemd/system/agent-time-market-fetcher.service <<EOF
+[Unit]
+Description=Agent-Time market fetcher
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/agent-time-market-fetcher-run
+WorkingDirectory=/opt/agent-time
+TimeoutStartSec=1800
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat >/etc/systemd/system/agent-time-market-fetcher.timer <<EOF
+[Unit]
+Description=Agent-Time market fetcher schedule
+
+[Timer]
+OnCalendar=${schedule}
+Persistent=true
+Unit=agent-time-market-fetcher.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable agent-time-market-fetcher.service
+
+if [ "${enable_timers}" = "true" ]; then
+  systemctl enable --now agent-time-market-fetcher.timer
+fi
+
+if [ "${run_service_once_on_boot}" = "true" ]; then
+  systemctl start agent-time-market-fetcher.service || true
+fi

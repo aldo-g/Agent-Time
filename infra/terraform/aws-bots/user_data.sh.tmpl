@@ -1,0 +1,153 @@
+#!/bin/bash
+set -euxo pipefail
+
+dnf -y update
+dnf -y install docker awscli jq
+systemctl enable --now docker
+
+mkdir -p /opt/agent-time/results /opt/agent-time/data /etc/agent-time
+
+cat >/usr/local/bin/agent-time-refresh-env <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+ENV_FILE="/etc/agent-time/bot.env"
+TMP_FILE="$(mktemp)"
+
+LLM_KEY="$(aws ssm get-parameter --region "${aws_region}" --name "${llm_param_name}" --with-decryption --query Parameter.Value --output text)"
+MANIFOLD_KEY="$(aws ssm get-parameter --region "${aws_region}" --name "${manifold_param_name}" --with-decryption --query Parameter.Value --output text)"
+
+cat >"$${TMP_FILE}" <<ENV
+AGENT_NAME=${agent_name}
+AGENT_EXPECTED_WALLET=${expected_wallet}
+${llm_env_var}=$${LLM_KEY}
+${manifold_env_var}=$${MANIFOLD_KEY}
+AGENT_RESULTS_PATH=/results/${agent_name}_runs.jsonl
+AGENT_TRADE_LOG_PATH=/results/trades.jsonl
+PREDICT_ARENA_MARKET_CACHE=/data/shared_markets.json
+AGENT_MAX_ATTEMPTS=${max_attempts}
+%{ for key, value in common_env ~}
+${key}=${value}
+%{ endfor ~}
+ENV
+
+mv "$${TMP_FILE}" "$${ENV_FILE}"
+chmod 600 "$${ENV_FILE}"
+SCRIPT
+
+chmod +x /usr/local/bin/agent-time-refresh-env
+
+cat >/usr/local/bin/agent-time-sync-market-cache <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+if [ "${enable_shared_market_cache}" != "true" ]; then
+  echo "Shared market cache disabled; skipping cache sync."
+  exit 0
+fi
+
+CACHE_PATH="/opt/agent-time/data/shared_markets.json"
+S3_URI="s3://${shared_market_cache_bucket}/${shared_market_cache_object_key}"
+WAIT_SECONDS="${market_cache_wait_seconds}"
+MAX_AGE_SECONDS="${market_cache_max_age_seconds}"
+SLEEP_SECONDS=3
+DEADLINE_TS="$(( $(date +%s) + WAIT_SECONDS ))"
+
+echo "Waiting for fresh shared market cache from $${S3_URI}."
+while :; do
+  LAST_MODIFIED="$(aws s3api head-object --bucket "${shared_market_cache_bucket}" --key "${shared_market_cache_object_key}" --query 'LastModified' --output text 2>/dev/null || true)"
+  if [ -n "$${LAST_MODIFIED}" ] && [ "$${LAST_MODIFIED}" != "None" ]; then
+    OBJECT_TS="$(date -d "$${LAST_MODIFIED}" +%s 2>/dev/null || echo 0)"
+    NOW_TS="$(date +%s)"
+    if [ "$${OBJECT_TS}" -ge "$((NOW_TS - MAX_AGE_SECONDS))" ]; then
+      aws s3 cp "$${S3_URI}" "$${CACHE_PATH}"
+      if [ -s "$${CACHE_PATH}" ]; then
+        echo "Downloaded shared market cache to $${CACHE_PATH}."
+        exit 0
+      fi
+    fi
+  fi
+
+  NOW_TS="$(date +%s)"
+  if [ "$${NOW_TS}" -ge "$${DEADLINE_TS}" ]; then
+    echo "Timed out waiting $${WAIT_SECONDS}s for fresh shared market cache from $${S3_URI}."
+    exit 1
+  fi
+  sleep "$${SLEEP_SECONDS}"
+done
+SCRIPT
+
+chmod +x /usr/local/bin/agent-time-sync-market-cache
+
+cat >/usr/local/bin/agent-time-run <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+aws ecr get-login-password --region "${aws_region}" | docker login --username AWS --password-stdin "${ecr_registry}"
+docker pull "${ecr_image_uri}"
+docker rm -f agent-time-bot >/dev/null 2>&1 || true
+
+docker run --rm --name agent-time-bot \
+  --env-file /etc/agent-time/bot.env \
+  --log-driver=awslogs \
+  --log-opt awslogs-region=${aws_region} \
+  --log-opt awslogs-group=${log_group_name} \
+  --log-opt awslogs-stream=${log_stream_name} \
+  -v /opt/agent-time/results:/results \
+  -v /opt/agent-time/data:/data \
+  "${ecr_image_uri}" \
+  python -m agent.multi_runner \
+    --agent "${agent_name}" \
+    --skip-market-fetch \
+    --market-cache /data/shared_markets.json \
+    --market-limit "${market_limit}" \
+    --max-attempts "${max_attempts}" \
+    --results "/results/${agent_name}_runs.jsonl"
+SCRIPT
+
+chmod +x /usr/local/bin/agent-time-run
+
+cat >/etc/systemd/system/agent-time-bot.service <<EOF
+[Unit]
+Description=Agent-Time bot (${bot_key})
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/local/bin/agent-time-refresh-env
+ExecStartPre=/usr/local/bin/agent-time-sync-market-cache
+ExecStart=/usr/local/bin/agent-time-run
+WorkingDirectory=/opt/agent-time
+TimeoutStartSec=1800
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat >/etc/systemd/system/agent-time-bot.timer <<EOF
+[Unit]
+Description=Agent-Time bot schedule (${bot_key})
+
+[Timer]
+OnCalendar=${schedule}
+Persistent=true
+Unit=agent-time-bot.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable agent-time-bot.service
+
+if [ "${enable_timers}" = "true" ]; then
+  systemctl enable --now agent-time-bot.timer
+fi
+
+if [ "${run_service_once_on_boot}" = "true" ]; then
+  systemctl start agent-time-bot.service || true
+fi

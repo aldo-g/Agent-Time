@@ -1,0 +1,43 @@
+aws_region             = "us-east-1"
+environment            = "dev"
+default_instance_type  = "t3.micro"
+create_public_eips     = false
+enable_timers          = true
+run_service_once_on_boot = true
+default_schedule       = "hourly"
+enable_shared_market_cache = true
+create_market_fetcher_instance = true
+market_fetcher_instance_type = "t3.micro"
+market_fetcher_schedule = "hourly"
+market_cache_wait_seconds = 180
+market_cache_max_age_seconds = 7200
+# shared_market_cache_object_key = "shared/shared_markets.json"
+# shared_market_cache_force_destroy = false
+
+# Optional: allow SSH from your IP. Leave null to use SSM Session Manager only.
+# ssh_ingress_cidr = "1.2.3.4/32"
+
+# Optional: override schedules per bot.
+# bots = {
+#   gpt = {
+#     agent_name       = "gpt-runner"
+#     expected_wallet  = "AgentChatGPT"
+#     llm_env_var      = "OPENAI_API_KEY"
+#     manifold_env_var = "MANIFOLD_API_KEY_OPENAI"
+#     schedule         = "hourly"
+#   }
+#   claude = {
+#     agent_name       = "claude-runner"
+#     expected_wallet  = "AgentClaude"
+#     llm_env_var      = "CLAUDE_API_KEY"
+#     manifold_env_var = "MANIFOLD_API_KEY_CLAUDE"
+#     schedule         = "hourly"
+#   }
+#   gemini = {
+#     agent_name       = "gemini-runner"
+#     expected_wallet  = "AgentGemini"
+#     llm_env_var      = "GEMINI_API_KEY"
+#     manifold_env_var = "MANIFOLD_API_KEY_GEMINI"
+#     schedule         = "hourly"
+#   }
+# }
