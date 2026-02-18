@@ -1,3 +1,13 @@
 .env
 .env.local
 __pycache__/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+infra/terraform/aws-bots/node_modules/
+infra/terraform/aws-bots/.terraform/
+infra/terraform/aws-bots/*.tfstate
+infra/terraform/aws-bots/*.tfstate.backup
+infra/terraform/aws-bots/terraform.tfvars
