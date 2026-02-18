@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ast
+import os
+import re
 from typing import List, Optional, Tuple
 
 from agent.manifold.portfolio import PortfolioSnapshot, fetch_portfolio_snapshot
@@ -11,6 +14,54 @@ from . import config
 from .errors import _is_not_found_error
 from .limits import _enforce_market_limit
 from .summaries import _summarize_portfolio
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+DEFAULT_MANIFOLD_PORTFOLIO_MAX_CALLS = _env_int("AGENT_MANIFOLD_PORTFOLIO_MAX_CALLS", 2)
+DEFAULT_PORTFOLIO_ANALYTICS_MAX_CALLS = _env_int("AGENT_PORTFOLIO_ANALYTICS_MAX_CALLS", 2)
+
+_portfolio_call_count = 0
+_portfolio_analytics_call_count = 0
+
+
+def reset_portfolio_tool_state() -> None:
+    """Reset per-run counters used to prevent runaway portfolio tool loops."""
+    global _portfolio_call_count, _portfolio_analytics_call_count
+    _portfolio_call_count = 0
+    _portfolio_analytics_call_count = 0
+
+
+def _resolve_expected_wallet() -> str | None:
+    expected = (os.environ.get("AGENT_EXPECTED_WALLET") or "").strip()
+    return expected or None
+
+
+def _assert_expected_wallet(snapshot: PortfolioSnapshot, *, tool_name: str) -> None:
+    expected_wallet = _resolve_expected_wallet()
+    if not expected_wallet:
+        return
+    observed_wallet = (snapshot.wallet or "").strip()
+    if observed_wallet.lower() != expected_wallet.lower():
+        raise RuntimeError(
+            f"Expected wallet '{expected_wallet}' but saw '{observed_wallet}' in {tool_name}."
+        )
+
+
+def _enforce_tool_call_limit(tool_name: str, call_count: int, max_calls: int) -> None:
+    if call_count <= max_calls:
+        return
+    raise RuntimeError(
+        f"Tool call limit exceeded for {tool_name}: {call_count} calls this run "
+        f"(max {max_calls})."
+    )
 
 
 def _estimate_bankroll(snapshot: PortfolioSnapshot) -> Tuple[float, float]:
@@ -34,16 +85,31 @@ def _estimate_bankroll(snapshot: PortfolioSnapshot) -> Tuple[float, float]:
 
 
 def _run_portfolio(wallet: str | None = None, required: bool = False) -> str:
+    global _portfolio_call_count
+    _portfolio_call_count += 1
+    _enforce_tool_call_limit(
+        "manifold_portfolio",
+        _portfolio_call_count,
+        max(1, int(DEFAULT_MANIFOLD_PORTFOLIO_MAX_CALLS)),
+    )
     try:
-        snapshot = fetch_portfolio_snapshot(wallet)
+        snapshot = fetch_portfolio_snapshot(wallet, api_key=os.environ.get("MANIFOLD_API_KEY"))
     except Exception as exc:  # noqa: BLE001
         if required:
             raise
         return f"Unable to fetch Manifold portfolio: {exc}"
+    _assert_expected_wallet(snapshot, tool_name="manifold_portfolio")
     return _summarize_portfolio(snapshot)
 
 
 def _run_portfolio_analytics(max_positions: int = 5) -> str:
+    global _portfolio_analytics_call_count
+    _portfolio_analytics_call_count += 1
+    _enforce_tool_call_limit(
+        "portfolio_analytics",
+        _portfolio_analytics_call_count,
+        max(1, int(DEFAULT_PORTFOLIO_ANALYTICS_MAX_CALLS)),
+    )
     try:
         max_positions = int(max_positions)
     except Exception:
@@ -51,9 +117,10 @@ def _run_portfolio_analytics(max_positions: int = 5) -> str:
     if max_positions < 1:
         max_positions = 5
     try:
-        snapshot = fetch_portfolio_snapshot(None)
+        snapshot = fetch_portfolio_snapshot(None, api_key=os.environ.get("MANIFOLD_API_KEY"))
     except Exception as exc:  # noqa: BLE001
         return f"Unable to fetch portfolio analytics: {exc}"
+    _assert_expected_wallet(snapshot, tool_name="portfolio_analytics")
     bankroll, gross_exposure = _estimate_bankroll(snapshot)
     cash = snapshot.cash_balance or 0.0
     lines = [
@@ -98,14 +165,27 @@ def _run_portfolio_analytics(max_positions: int = 5) -> str:
 
 
 def _run_risk_gate(
+    raw: object | None = None,
     *,
-    market_id: str | None,
-    outcome: str | None,
-    amount: float | None,
+    market_id: str | None = None,
+    outcome: str | None = None,
+    amount: float | None = None,
     belief_prob: float | None = None,
     market_prob: Optional[float] = None,
     bankroll: Optional[float] = None,
 ) -> str:
+    if raw is not None:
+        parsed = _parse_legacy_risk_gate_payload(raw)
+        market_id = market_id or _coerce_optional_str(parsed.get("market_id") or parsed.get("marketId"))
+        outcome = outcome or _coerce_optional_str(parsed.get("outcome"))
+        amount = amount if amount is not None else _coerce_optional_float(parsed.get("amount"))
+        belief_prob = (
+            belief_prob if belief_prob is not None else _coerce_optional_float(parsed.get("belief_prob"))
+        )
+        market_prob = (
+            market_prob if market_prob is not None else _coerce_optional_float(parsed.get("market_prob"))
+        )
+        bankroll = bankroll if bankroll is not None else _coerce_optional_float(parsed.get("bankroll"))
     if not market_id or not outcome or amount is None or belief_prob is None:
         return (
             "Risk gate input missing required fields. "
@@ -131,7 +211,7 @@ def _run_risk_gate(
             bankroll = None
     snapshot = None
     if bankroll is None:
-        snapshot = fetch_portfolio_snapshot(None)
+        snapshot = fetch_portfolio_snapshot(None, api_key=os.environ.get("MANIFOLD_API_KEY"))
         bankroll, gross_exposure = _estimate_bankroll(snapshot)
     else:
         gross_exposure = 0.0
@@ -179,3 +259,59 @@ def _run_risk_gate(
     else:
         lines.append("Risk gate: PASS")
     return "\n".join(lines)
+
+
+def _parse_legacy_risk_gate_payload(raw: object) -> dict[str, object]:
+    """Accept legacy ReAct-style tool input such as \"a=1, b='x'\"."""
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return {}
+    text = raw.strip()
+    if not text:
+        return {}
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            parsed = ast.literal_eval(text)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, dict):
+            return parsed
+    out: dict[str, object] = {}
+    # key='value', key=12.34, key=true formats
+    for key, _, single_q, double_q, bare in re.findall(
+        r"(\w+)\s*=\s*('([^']*)'|\"([^\"]*)\"|([^,]+))",
+        text,
+    ):
+        token = single_q or double_q or (bare or "").strip()
+        lowered = token.lower()
+        if lowered == "none":
+            value: object = None
+        elif lowered in {"true", "false"}:
+            value = lowered == "true"
+        else:
+            try:
+                if "." in token:
+                    value = float(token)
+                else:
+                    value = int(token)
+            except ValueError:
+                value = token
+        out[key] = value
+    return out
+
+
+def _coerce_optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _coerce_optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None

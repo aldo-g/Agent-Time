@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 
 import utils.env_loader as env_loader  # noqa: F401
 from agent.manifold.constants import MANIFOLD_API_ROOT, RESOLUTION_CUTOFF_MS
+from agent.manifold.portfolio import verify_wallet_identity
 
 USER_AGENT = "AgentTimeBot/1.0 (+https://manifold.markets)"
 MAX_API_RETRIES = int(os.environ.get("MANIFOLD_API_RETRIES", "2"))
@@ -245,6 +246,7 @@ def _fetch_market_payload(identifier: str) -> Dict[str, object]:
 
 
 def _api_request(path: str, *, method: str = "GET", body: object | None = None) -> object:
+    verify_wallet_identity(api_key=os.environ.get("MANIFOLD_API_KEY"))
     roots = [MANIFOLD_API_ROOT]
     if MANIFOLD_API_ROOT.startswith("https://api.manifold.markets") and ALT_MANIFOLD_API_ROOT not in roots:
         roots.append(ALT_MANIFOLD_API_ROOT)
@@ -317,6 +319,11 @@ def _auth_headers() -> Dict[str, str]:
         "User-Agent": USER_AGENT,
         "Accept": "application/json",
         "Content-Type": "application/json",
+        # Avoid connection and intermediary cache reuse across different auth keys.
+        "Connection": "close",
+        # Guard against intermediary cache bleed on auth endpoints.
+        "Cache-Control": "no-cache, no-store, max-age=0",
+        "Pragma": "no-cache",
     }
 
 

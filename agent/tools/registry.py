@@ -108,7 +108,10 @@ def build_agent_tools() -> List[StructuredTool]:
     sell_tool = StructuredTool.from_function(
         name="manifold_sell_position",
         func=_run_sell_position,
-        description="Sell shares from an existing Manifold position.",
+        description=(
+            "Sell an existing Manifold position for the selected outcome. "
+            "This tool always attempts to liquidate the full position and ignores partial share inputs."
+        ),
         args_schema=SellPositionInput,
     )
     limit_preview_tool = StructuredTool.from_function(

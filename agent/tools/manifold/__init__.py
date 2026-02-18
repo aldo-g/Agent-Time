@@ -9,7 +9,12 @@ from .markets import (
     _run_market_details,
     _run_market_history,
 )
-from .portfolio import _run_portfolio, _run_portfolio_analytics, _run_risk_gate
+from .portfolio import (
+    _run_portfolio,
+    _run_portfolio_analytics,
+    _run_risk_gate,
+    reset_portfolio_tool_state,
+)
 from .trading import _run_limit_order_preview, _run_place_bet, _run_sell_position
 
 __all__ = [
@@ -24,5 +29,5 @@ __all__ = [
     "_run_risk_gate",
     "_run_sell_position",
     "reset_inspected_markets",
+    "reset_portfolio_tool_state",
 ]
-

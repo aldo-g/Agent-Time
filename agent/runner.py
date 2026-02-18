@@ -13,7 +13,7 @@ from typing import Any, Dict
 import utils.env_loader as env_loader  # noqa: F401
 from agent.callbacks import ConsoleLogger, StepDelay, TokenUsageTracker, ToolCallTracker
 from agent.tools import build_agent_tools
-from agent.tools.manifold import reset_inspected_markets
+from agent.tools.manifold import reset_inspected_markets, reset_portfolio_tool_state
 from langchain.agents import AgentExecutor, create_tool_calling_agent, create_react_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
 
@@ -129,8 +129,10 @@ def _build_prompt() -> ChatPromptTemplate:
         (portfolio, markets, news), plan trades, and output a clear action plan without assuming near-term follow-up.
         Conserve bankroll and avoid overbetting in any single run so you can keep trading over time. Always begin
         by calling the `manifold_portfolio` tool so you know the account's cash, realized/unrealized PnL, and current
-        exposures, then call `portfolio_analytics` to check concentration before sizing trades. Check market close times with
-        `event_timer` and resolution criteria before trading, but you may trade any market that fits your thesis. Use
+        exposures, then call `portfolio_analytics` to check concentration before sizing trades. Call each of
+        `manifold_portfolio` and `portfolio_analytics` at most once per run unless a prior call failed; repeated calls
+        are treated as an error. Check market close times with `event_timer` and resolution criteria before trading, but
+        you may trade any market that fits your thesis. Use
         `duckduckgo_search` (and `web_scrape` when you cite a specific URL) whenever you cite catalysts or need fresh information—back
         up each recommendation with at least one relevant fact. Call `manifold_market_details` and `manifold_market_history`
         whenever you need the full set of answers/odds or recent flow for a market. Before placing any wager, run `risk_gate`
@@ -177,6 +179,11 @@ def _build_agent_executor(
         react_prompt = PromptTemplate.from_template(
             """
             You are Agent-Time, an autonomous Manifold trading agent. Use the tools below to gather context and place trades.
+            Required workflow:
+            - Call `manifold_portfolio` once near the start.
+            - Call `portfolio_analytics` once near the start.
+            - Do not repeatedly call `manifold_portfolio` or `portfolio_analytics`; repeated calls can fail the run.
+            - Use `risk_gate` before each `manifold_place_bet`.
 
             You have access to the following tools:
             {tools}
@@ -218,6 +225,7 @@ def run_daily_session(
 ) -> Dict[str, Any]:
     """Execute an autonomous session and return the agent's final output."""
     reset_inspected_markets()
+    reset_portfolio_tool_state()
     executor = _build_agent_executor(model, temperature, provider, max_steps, verbose)
     inputs = {
         "input": instruction,
@@ -241,9 +249,12 @@ def run_daily_session(
     if tracker.wallet_mismatch_error:
         raise RuntimeError(tracker.wallet_mismatch_error)
     expected_wallet = os.environ.get("AGENT_EXPECTED_WALLET") or None
-    if expected_wallet and tracker.wallets_seen and expected_wallet not in tracker.wallets_seen:
-        seen = ", ".join(sorted(tracker.wallets_seen))
-        raise RuntimeError(f"Expected wallet '{expected_wallet}' but saw {seen}.")
+    if expected_wallet and tracker.wallets_seen:
+        expected_normalized = expected_wallet.strip().lower()
+        seen_normalized = {wallet.strip().lower() for wallet in tracker.wallets_seen}
+        if expected_normalized not in seen_normalized:
+            seen = ", ".join(sorted(tracker.wallets_seen))
+            raise RuntimeError(f"Expected wallet '{expected_wallet}' but saw {seen}.")
     if token_tracker.usage.total_tokens == 0:
         logging.warning(
             "Token usage metadata missing for %s:%s. Tokens in/out will be 0 for this run.",

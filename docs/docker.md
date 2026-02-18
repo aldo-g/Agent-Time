@@ -34,5 +34,8 @@ docker compose up --build
 
 ### Notes
 - Market cache is written to `data/shared_markets.json`.
-- Each agent writes JSONL output to `results/`.
+- Each agent writes JSONL output to its own isolated directory:
+  - `results/gpt/`
+  - `results/claude/`
+  - `results/gemini/`
 - Postgres data is stored in the `pg_data` volume.

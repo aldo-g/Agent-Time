@@ -313,6 +313,14 @@ def _has_declared_trade_lines(output: object) -> bool:
             return True
         if re.search(r"\bbuy\s+\$?\d", line_lower):
             return True
+        if re.search(r"\bsold\s+(a\s+)?position\b", line_lower):
+            return True
+        if re.search(r"\bopened\s+(a\s+)?new\s+position\b", line_lower):
+            return True
+        if re.search(r"\bopened\s+(a\s+)?position\b", line_lower):
+            return True
+        if re.search(r"\bclosed\s+(a\s+)?position\b", line_lower):
+            return True
     return False
 
 
@@ -512,7 +520,7 @@ def run_multi_agent(
             _temporary_env("AGENT_EXPECTED_WALLET", expected_wallet),
         ):
             try:
-                pre_snapshot = fetch_portfolio_snapshot(None)
+                pre_snapshot = fetch_portfolio_snapshot(None, api_key=manifold_key)
                 pre_cash_balance = pre_snapshot.cash_balance
             except Exception:  # noqa: BLE001
                 pre_cash_balance = None
@@ -540,7 +548,7 @@ def run_multi_agent(
                 tool_errors = None
                 try:
                     if expected_wallet:
-                        preflight_snapshot = fetch_portfolio_snapshot(None)
+                        preflight_snapshot = fetch_portfolio_snapshot(None, api_key=manifold_key)
                         observed_wallet = (preflight_snapshot.wallet or "").strip()
                         if observed_wallet.lower() != expected_wallet.strip().lower():
                             raise RuntimeError(
@@ -649,14 +657,14 @@ def run_multi_agent(
             if success:
                 for attempt in range(2):
                     try:
-                        snapshot = fetch_portfolio_snapshot(None)
+                        snapshot = fetch_portfolio_snapshot(None, api_key=manifold_key)
                         portfolio_snapshot = _snapshot_to_dict(snapshot)
                         if tool_calls and any(
                             call in tool_calls
                             for call in ("manifold_place_bet", "manifold_sell_position")
                         ):
                             time.sleep(2)
-                            snapshot = fetch_portfolio_snapshot(None)
+                            snapshot = fetch_portfolio_snapshot(None, api_key=manifold_key)
                             portfolio_snapshot = _snapshot_to_dict(snapshot)
                         break
                     except Exception as exc:  # noqa: BLE001

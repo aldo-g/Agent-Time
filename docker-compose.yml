@@ -47,7 +47,7 @@ services:
       MARKET_CACHE_WAIT_SECONDS: ${MARKET_CACHE_WAIT_SECONDS:-120}
     volumes:
       - ./data:/data
-      - ./results:/results
+      - ./results/gpt:/results
       - ./agents.json:/app/agents.json:ro
     depends_on:
       market-fetcher:
@@ -76,7 +76,7 @@ services:
       MARKET_CACHE_WAIT_SECONDS: ${MARKET_CACHE_WAIT_SECONDS:-120}
     volumes:
       - ./data:/data
-      - ./results:/results
+      - ./results/claude:/results
       - ./agents.json:/app/agents.json:ro
     depends_on:
       market-fetcher:
@@ -105,7 +105,7 @@ services:
       MARKET_CACHE_WAIT_SECONDS: ${MARKET_CACHE_WAIT_SECONDS:-120}
     volumes:
       - ./data:/data
-      - ./results:/results
+      - ./results/gemini:/results
       - ./agents.json:/app/agents.json:ro
     depends_on:
       market-fetcher:

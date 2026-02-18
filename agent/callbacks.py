@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 import re
 import time
 from typing import Any, List, Optional
 
 from langchain_core.callbacks import BaseCallbackHandler
+
+
+def _extract_wallet_from_text(output: str) -> Optional[str]:
+    match = re.search(r"\bWallet:\s*([\w\-]+)", output)
+    if match:
+        return match.group(1)
+    return None
 
 
 class ToolCallTracker(BaseCallbackHandler):
@@ -81,10 +89,7 @@ class ToolCallTracker(BaseCallbackHandler):
 
     @staticmethod
     def _extract_wallet(output: str) -> Optional[str]:
-        match = re.search(r"Wallet:\\s*([\\w\\-]+)", output)
-        if match:
-            return match.group(1)
-        return None
+        return _extract_wallet_from_text(output)
 
 
 @dataclass
@@ -176,12 +181,17 @@ class ConsoleLogger(BaseCallbackHandler):
     def __init__(self, show_inputs: bool = True, show_outputs: bool = True) -> None:
         self.show_inputs = show_inputs
         self.show_outputs = show_outputs
+        self.expected_wallet = (os.environ.get("AGENT_EXPECTED_WALLET") or "").strip()
+        self.current_wallet = self.expected_wallet
 
     def _preview(self, value: Any) -> str:
         try:
             preview = str(value)
         except Exception:
             preview = "<unprintable>"
+        # Keep callback logs single-line so external log parsers don't assign
+        # fallback timestamps to continuation lines.
+        preview = preview.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
         if len(preview) > 200:
             preview = preview[:197] + "..."
         return preview
@@ -210,19 +220,35 @@ class ConsoleLogger(BaseCallbackHandler):
         return "unknown"
 
     def on_tool_start(self, serialized: Any, input_str: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        name = self._name({**kwargs, "serialized": serialized})
+        wallet = self.current_wallet or self.expected_wallet or "unknown"
         if not self.show_inputs:
-            print(f"[tool:start] {self._name({**kwargs, 'serialized': serialized})}")
+            print(f"[tool:start] calling tool '{name}' in wallet '{wallet}'")
             return
         payload = input_str
         if payload in (None, ""):
             payload = kwargs.get("input") or kwargs.get("inputs")
-        print(f"[tool:start] {self._name({**kwargs, 'serialized': serialized})} {self._preview(payload)}")
+        print(
+            f"[tool:start] calling tool '{name}' in wallet '{wallet}' "
+            f"with input {self._preview(payload)}"
+        )
 
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        name = self._name(kwargs)
+        if isinstance(output, str):
+            observed_wallet = _extract_wallet_from_text(output)
+            if observed_wallet:
+                self.current_wallet = observed_wallet
+        wallet = self.current_wallet or self.expected_wallet or "unknown"
         if not self.show_outputs:
-            print(f"[tool:end] {self._name(kwargs)}")
+            print(f"[tool:end] tool '{name}' ran successfully in wallet '{wallet}'")
             return
-        print(f"[tool:end] {self._name(kwargs)} -> {self._preview(output)}")
+        print(
+            f"[tool:end] tool '{name}' ran successfully in wallet '{wallet}' -> "
+            f"{self._preview(output)}"
+        )
 
     def on_tool_error(self, error: Exception | KeyboardInterrupt, **kwargs: Any) -> None:
-        print(f"[tool:error] {self._name(kwargs)}: {error}")
+        name = self._name(kwargs)
+        wallet = self.current_wallet or self.expected_wallet or "unknown"
+        print(f"[tool:error] tool '{name}' failed in wallet '{wallet}': {error}")

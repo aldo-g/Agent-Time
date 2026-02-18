@@ -217,12 +217,23 @@ def _run_web_scrape(url: str, max_chars: int = 2000) -> str:
             raw = response.read()
     except Exception as exc:
         return f"Unable to fetch {cleaned}: {exc}"
-    if "text/html" in content_type:
+    content_type_lower = content_type.lower()
+    if "application/pdf" in content_type_lower or raw.startswith(b"%PDF-"):
+        return (
+            f"Binary PDF content detected at {cleaned}. "
+            "web_scrape supports text/html and plain text only."
+        )
+    if "text/html" in content_type_lower:
         parser = _HTMLTextExtractor()
         parser.feed(raw.decode("utf-8", errors="ignore"))
         text = parser.get_text()
-    else:
+    elif content_type_lower.startswith("text/") or "json" in content_type_lower or "xml" in content_type_lower:
         text = raw.decode("utf-8", errors="ignore")
+    else:
+        return (
+            f"Binary content type '{content_type or 'unknown'}' detected at {cleaned}. "
+            "web_scrape supports text/html and plain text only."
+        )
     snippet = text[:max_chars].strip()
     return snippet or "No content found."
 

@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from threading import Lock
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import utils.env_loader as env_loader  # noqa: F401
@@ -21,6 +23,12 @@ RETRY_BACKOFF_SECONDS = float(os.environ.get("MANIFOLD_API_RETRY_BACKOFF", "0.6"
 TRANSIENT_HTTP_CODES = {429, 502, 503, 504}
 API_TIMEOUT_SECONDS = float(os.environ.get("MANIFOLD_API_TIMEOUT", "20"))
 MARKET_OPEN_BUFFER_SECONDS = float(os.environ.get("MANIFOLD_MARKET_OPEN_BUFFER_SECONDS", "0"))
+IDENTITY_RETRY_LIMIT = int(os.environ.get("MANIFOLD_IDENTITY_RETRY_LIMIT", "5"))
+IDENTITY_RETRY_BACKOFF_SECONDS = float(os.environ.get("MANIFOLD_IDENTITY_RETRY_BACKOFF", "0.2"))
+VERIFY_EVERY_REQUEST_ENV = "MANIFOLD_VERIFY_BEFORE_EACH_REQUEST"
+
+_KEY_WALLET_CACHE: Dict[str, str] = {}
+_KEY_WALLET_CACHE_LOCK = Lock()
 
 
 def _safe_float(value: object, *, default: Optional[float] = None) -> Optional[float]:
@@ -65,7 +73,7 @@ class PortfolioSnapshot:
 
 def fetch_portfolio_snapshot(_: str | None = None, *, api_key: str | None = None) -> PortfolioSnapshot:
     """Fetch the authenticated Manifold user's portfolio."""
-    user = _fetch_authenticated_user(api_key=api_key)
+    user = verify_wallet_identity(api_key=api_key)
     user_id = str(user.get("id") or user.get("_id") or "")
     if not user_id:
         raise RuntimeError("Unable to determine Manifold user id from /me response.")
@@ -108,7 +116,7 @@ def fetch_portfolio_snapshot(_: str | None = None, *, api_key: str | None = None
 
 def fetch_user_overview(*, api_key: str | None = None) -> dict:
     """Fetch raw /me fields for debugging/account parity checks."""
-    user = _fetch_authenticated_user(api_key=api_key)
+    user = verify_wallet_identity(api_key=api_key)
     user_id = user.get("id") or user.get("_id")
     metrics: Optional[dict] = None
     if user_id:
@@ -139,6 +147,11 @@ def _auth_headers(api_key: str | None = None) -> Dict[str, str]:
         "User-Agent": USER_AGENT,
         "Accept": "application/json",
         "Content-Type": "application/json",
+        # Avoid connection and intermediary cache reuse across different auth keys.
+        "Connection": "close",
+        # Guard against intermediary cache bleed on auth endpoints.
+        "Cache-Control": "no-cache, no-store, max-age=0",
+        "Pragma": "no-cache",
     }
 
 
@@ -150,6 +163,27 @@ def _api_request(
     body: object | None = None,
     api_key: str | None = None,
 ) -> object:
+    return _api_request_internal(
+        path,
+        params=params,
+        method=method,
+        body=body,
+        api_key=api_key,
+        verify_wallet=True,
+    )
+
+
+def _api_request_internal(
+    path: str,
+    *,
+    params: dict | None = None,
+    method: str = "GET",
+    body: object | None = None,
+    api_key: str | None = None,
+    verify_wallet: bool,
+) -> object:
+    if verify_wallet and _should_verify_before_each_request() and _normalize_path(path) != "/me":
+        verify_wallet_identity(api_key=api_key)
     url = _build_url(path, params)
     headers = _auth_headers(api_key)
     data_bytes = None
@@ -194,14 +228,73 @@ def _build_url(path: str, params: dict | None) -> str:
     return url
 
 
-def _fetch_authenticated_user(api_key: str | None = None) -> dict:
-    payload = _api_request("/me", api_key=api_key)
-    if isinstance(payload, dict):
+def _fetch_authenticated_user(
+    api_key: str | None = None,
+    *,
+    expected_wallet: str | None = None,
+) -> dict:
+    expected_normalized = (expected_wallet or "").strip().lower() or None
+    attempts = max(1, int(IDENTITY_RETRY_LIMIT))
+    seen_wallets: List[str] = []
+    for attempt in range(attempts):
+        payload = _api_request_internal(
+            "/me",
+            params={"_": str(time.time_ns())},
+            api_key=api_key,
+            verify_wallet=False,
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("Unexpected response from Manifold /me endpoint.")
         user = payload.get("user")
-        if isinstance(user, dict):
-            return user
-        return payload
-    raise RuntimeError("Unexpected response from Manifold /me endpoint.")
+        if not isinstance(user, dict):
+            user = payload
+        observed_wallet = str(user.get("username") or user.get("name") or "").strip()
+        if expected_normalized:
+            if observed_wallet and observed_wallet.lower() == expected_normalized:
+                return user
+            if observed_wallet:
+                seen_wallets.append(observed_wallet)
+            if attempt < attempts - 1:
+                time.sleep(IDENTITY_RETRY_BACKOFF_SECONDS * (2**attempt))
+                continue
+            seen = ", ".join(sorted(set(seen_wallets))) if seen_wallets else "unknown"
+            raise RuntimeError(
+                f"Expected wallet '{expected_wallet}' but /me returned '{observed_wallet or 'unknown'}'. "
+                f"Seen wallets during retries: {seen}."
+            )
+        return user
+    raise RuntimeError("Unable to fetch authenticated Manifold user after retrying.")
+
+
+def verify_wallet_identity(*, api_key: str | None = None, expected_wallet: str | None = None) -> dict:
+    key = api_key or os.environ.get("MANIFOLD_API_KEY")
+    if not key:
+        raise RuntimeError("Set MANIFOLD_API_KEY before inspecting the portfolio or trading.")
+    expected = (expected_wallet or os.environ.get("AGENT_EXPECTED_WALLET") or "").strip() or None
+    user = _fetch_authenticated_user(api_key=key, expected_wallet=expected)
+    observed_wallet = str(user.get("username") or user.get("name") or "").strip()
+    if not observed_wallet:
+        raise RuntimeError("Wallet verification failed: /me response did not include a wallet name.")
+    key_fp = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    with _KEY_WALLET_CACHE_LOCK:
+        previous_wallet = _KEY_WALLET_CACHE.get(key_fp)
+        if previous_wallet is None:
+            _KEY_WALLET_CACHE[key_fp] = observed_wallet
+        elif previous_wallet.lower() != observed_wallet.lower():
+            raise RuntimeError(
+                "Wallet verification failed: key previously mapped to "
+                f"'{previous_wallet}' but now resolves to '{observed_wallet}'."
+            )
+    return user
+
+
+def _should_verify_before_each_request() -> bool:
+    raw = (os.environ.get(VERIFY_EVERY_REQUEST_ENV) or "1").strip().lower()
+    return raw not in {"0", "false", "no"}
+
+
+def _normalize_path(path: str) -> str:
+    return path if path.startswith("/") else f"/{path}"
 
 
 def _fetch_portfolio_metrics(user_id: str, api_key: str | None = None) -> Optional[dict]:
@@ -382,7 +475,12 @@ def _mark_price(market: dict, outcome_label: str) -> Optional[float]:
     return probability
 
 
-__all__ = ["PortfolioPosition", "PortfolioSnapshot", "fetch_portfolio_snapshot"]
+__all__ = [
+    "PortfolioPosition",
+    "PortfolioSnapshot",
+    "fetch_portfolio_snapshot",
+    "verify_wallet_identity",
+]
 
 
 def _read_error_body(exc: urllib.error.HTTPError) -> str:

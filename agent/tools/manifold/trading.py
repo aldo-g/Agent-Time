@@ -12,7 +12,7 @@ from agent.manifold.portfolio import PortfolioPosition, PortfolioSnapshot, fetch
 from agent.manifold.trading import MarketDetails, fetch_market_details, lookup_answer_id, place_bet, sell_position
 
 from .config import CUTOFF_ISO, DEFAULT_TRADE_LOG_PATH, RESOLUTION_CUTOFF_MS, TRADE_LOG_ENV
-from .errors import _is_not_found_error
+from .errors import _extract_sell_cap_shares, _is_not_found_error
 from .limits import _enforce_market_limit
 
 
@@ -66,7 +66,7 @@ def _run_place_bet(
         raise RuntimeError("Cannot trade markets without a close date.")
     if details.close_time > RESOLUTION_CUTOFF_MS:
         raise RuntimeError(f"This market resolves after {CUTOFF_ISO}; choose an earlier market.")
-    snapshot = fetch_portfolio_snapshot(None)
+    snapshot = fetch_portfolio_snapshot(None, api_key=os.environ.get("MANIFOLD_API_KEY"))
     if snapshot.cash_balance is not None and amount > snapshot.cash_balance + 1e-6:
         raise RuntimeError(
             f"Bet amount {amount:.2f} exceeds available balance {snapshot.cash_balance:.2f}."
@@ -162,7 +162,7 @@ def _run_sell_position(
     allowed, normalized, msg = _enforce_market_limit(market_id)
     if not allowed:
         return msg or "Market limit reached."
-    snapshot = fetch_portfolio_snapshot(None)
+    snapshot = fetch_portfolio_snapshot(None, api_key=os.environ.get("MANIFOLD_API_KEY"))
 
     holding = None
     holding_slug: Optional[str] = None
@@ -231,17 +231,33 @@ def _run_sell_position(
     if requested_shares is not None and abs(shares - requested_shares) > epsilon:
         adjusted_note = f" Requested {requested_shares:.2f}, selling full position {shares:.2f}."
     prob_before = _resolve_market_prob(details, target_label, answer)
+    submitted_shares = shares
     try:
         receipt = sell_position(
             market_id=details.market_id,
             outcome=target_label,
-            shares=shares,
+            shares=submitted_shares,
             answer_id=answer_id,
         )
     except RuntimeError as exc:
         if _is_not_found_error(exc):
             return f"Sell skipped: market not found ({details.market_id})."
-        raise
+        capped_shares = _extract_sell_cap_shares(exc)
+        if capped_shares is None:
+            raise
+        if capped_shares <= epsilon:
+            return f"Sell skipped: no sellable shares for outcome '{target_label}' in market {details.market_id}."
+        submitted_shares = capped_shares
+        receipt = sell_position(
+            market_id=details.market_id,
+            outcome=target_label,
+            shares=submitted_shares,
+            answer_id=answer_id,
+        )
+        if abs(submitted_shares - shares) > epsilon:
+            adjusted_note = (
+                f"{adjusted_note} Live position capped at {submitted_shares:.8f} shares before execution."
+            )
     try:
         _append_trade_log(
             {
@@ -257,7 +273,7 @@ def _run_sell_position(
                 "market_url": details.url,
                 "outcome": target_label,
                 "amount": receipt.amount,
-                "shares": receipt.shares if receipt.shares is not None else shares,
+                "shares": receipt.shares if receipt.shares is not None else submitted_shares,
                 "prob_before": prob_before,
                 "prob_after": receipt.probability,
                 "limit_prob": None,
@@ -267,7 +283,7 @@ def _run_sell_position(
         )
     except Exception:
         pass
-    executed_shares = receipt.shares if receipt.shares is not None else shares
+    executed_shares = receipt.shares if receipt.shares is not None else submitted_shares
     summary = (
         f"Sold {executed_shares:.2f} shares of '{target_label}' in market {details.market_id}. "
         f"Bet ID: {receipt.bet_id or 'unknown'}.{adjusted_note}"
