@@ -124,6 +124,18 @@ variable "default_schedule" {
   default     = "hourly"
 }
 
+variable "database_url_param_name" {
+  description = "Optional SSM SecureString parameter name for shared DATABASE_URL (e.g. Supabase Postgres URL). Leave null to skip DB wiring."
+  type        = string
+  default     = null
+}
+
+variable "require_database_url" {
+  description = "If true and database_url_param_name is set, fail bot startup when DATABASE_URL cannot be loaded."
+  type        = bool
+  default     = false
+}
+
 variable "ssh_ingress_cidr" {
   description = "Optional CIDR for SSH access (e.g. 1.2.3.4/32). Keep null to disable inbound SSH."
   type        = string

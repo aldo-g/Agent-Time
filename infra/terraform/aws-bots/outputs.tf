@@ -64,3 +64,8 @@ output "ssm_parameter_names" {
     }
   }
 }
+
+output "database_url_ssm_parameter_name" {
+  description = "Optional SSM parameter name used to load DATABASE_URL into all bots."
+  value       = var.database_url_param_name
+}

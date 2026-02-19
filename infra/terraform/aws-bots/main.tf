@@ -348,6 +348,8 @@ resource "aws_instance" "bot" {
     log_stream_name                = each.key
     market_limit                   = var.market_limit
     max_attempts                   = var.max_attempts
+    database_url_param_name        = var.database_url_param_name != null ? var.database_url_param_name : ""
+    database_url_required          = var.require_database_url ? "true" : "false"
     enable_shared_market_cache     = var.enable_shared_market_cache ? "true" : "false"
     shared_market_cache_bucket     = aws_s3_bucket.market_cache.bucket
     shared_market_cache_object_key = var.shared_market_cache_object_key

@@ -16,6 +16,15 @@ TMP_FILE="$(mktemp)"
 
 LLM_KEY="$(aws ssm get-parameter --region "${aws_region}" --name "${llm_param_name}" --with-decryption --query Parameter.Value --output text)"
 MANIFOLD_KEY="$(aws ssm get-parameter --region "${aws_region}" --name "${manifold_param_name}" --with-decryption --query Parameter.Value --output text)"
+DATABASE_URL_VALUE=""
+
+if [ -n "${database_url_param_name}" ]; then
+  DATABASE_URL_VALUE="$(aws ssm get-parameter --region "${aws_region}" --name "${database_url_param_name}" --with-decryption --query Parameter.Value --output text 2>/dev/null || true)"
+  if [ -z "$${DATABASE_URL_VALUE}" ] && [ "${database_url_required}" = "true" ]; then
+    echo "DATABASE_URL parameter '${database_url_param_name}' is missing or empty."
+    exit 1
+  fi
+fi
 
 cat >"$${TMP_FILE}" <<ENV
 AGENT_NAME=${agent_name}
@@ -30,6 +39,10 @@ AGENT_MAX_ATTEMPTS=${max_attempts}
 ${key}=${value}
 %{ endfor ~}
 ENV
+
+if [ -n "$${DATABASE_URL_VALUE}" ] && ! grep -q '^DATABASE_URL=' "$${TMP_FILE}"; then
+  printf 'DATABASE_URL=%s\n' "$${DATABASE_URL_VALUE}" >>"$${TMP_FILE}"
+fi
 
 mv "$${TMP_FILE}" "$${ENV_FILE}"
 chmod 600 "$${ENV_FILE}"

@@ -13,6 +13,9 @@ market_cache_wait_seconds = 180
 market_cache_max_age_seconds = 7200
 # shared_market_cache_object_key = "shared/shared_markets.json"
 # shared_market_cache_force_destroy = false
+# Optional: shared Supabase/Postgres connection for all bots.
+# database_url_param_name = "/agent-time/dev/DATABASE_URL"
+# require_database_url = true
 
 # Optional: allow SSH from your IP. Leave null to use SSM Session Manager only.
 # ssh_ingress_cidr = "1.2.3.4/32"
