@@ -38,6 +38,17 @@ def _safe_float(value: object, *, default: Optional[float] = None) -> Optional[f
         return default
 
 
+def _signed_shares_delta(shares: float, amount: float) -> float:
+    """Normalize share direction across Manifold bet payload variants.
+
+    Modern payloads already include signed shares (sales are negative). Older payloads may
+    report unsigned shares with a negative amount for sales.
+    """
+    if shares > 0 and amount < 0:
+        return -shares
+    return shares
+
+
 @dataclass
 class PortfolioPosition:
     """Single Manifold position."""
@@ -365,8 +376,7 @@ def _build_positions(bets: Iterable[dict], markets: Dict[str, dict]) -> List[Por
         key = (contract_id, str(answer_id or outcome_name))
         shares = _safe_float(bet.get("shares"), default=0.0) or 0.0
         amount = _safe_float(bet.get("amount"), default=0.0) or 0.0
-        direction = -1.0 if amount < 0 else 1.0
-        shares_delta = direction * shares
+        shares_delta = _signed_shares_delta(shares, amount)
         if abs(shares_delta) < 1e-9:
             continue
         agg = aggregates.setdefault(
@@ -384,8 +394,8 @@ def _build_positions(bets: Iterable[dict], markets: Dict[str, dict]) -> List[Por
         agg["shares"] = float(agg["shares"]) + shares_delta
         agg["buy_shares"] = float(agg["buy_shares"])
         agg["buy_notional"] = float(agg["buy_notional"])
-        if amount > 0:
-            agg["buy_shares"] += shares
+        if amount > 0 and shares_delta > 0:
+            agg["buy_shares"] += shares_delta
             agg["buy_notional"] += amount
     positions: List[PortfolioPosition] = []
     for (market_id, _), agg in aggregates.items():

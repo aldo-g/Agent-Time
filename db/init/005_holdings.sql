@@ -1,14 +1,14 @@
-CREATE TABLE IF NOT EXISTS holdings (
+CREATE TABLE IF NOT EXISTS equity_snapshots (
     id BIGSERIAL PRIMARY KEY,
-    agent_id BIGINT REFERENCES agents(id) ON DELETE CASCADE,
-    market_id TEXT NOT NULL,
-    market_slug TEXT,
-    outcome TEXT,
-    shares NUMERIC,
-    status TEXT NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (agent_id, market_id, outcome)
+    run_id BIGINT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    snapshot_type TEXT NOT NULL,
+    cash_balance NUMERIC,
+    positions_value NUMERIC,
+    bankroll NUMERIC,
+    gross_exposure NUMERIC,
+    open_positions INTEGER,
+    snapshot_json JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_holdings_agent ON holdings(agent_id);
-CREATE INDEX IF NOT EXISTS idx_holdings_market ON holdings(market_id);
+CREATE INDEX IF NOT EXISTS idx_equity_snapshots_run ON equity_snapshots(run_id);

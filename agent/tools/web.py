@@ -8,8 +8,10 @@ import json
 import math
 import os
 import statistics
+import time
 from html.parser import HTMLParser
 from typing import List, Optional
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -27,6 +29,9 @@ BLUESKY_API_URL = os.environ.get("BLUESKY_API_URL", "https://public.api.bsky.app
 BLUESKY_AUTH_API_URL = os.environ.get("BLUESKY_AUTH_API_URL", "https://bsky.social")
 BLUESKY_AUTH_TOKEN = os.environ.get("BLUESKY_AUTH_TOKEN")
 BLUESKY_USER_AGENT = os.environ.get("BLUESKY_USER_AGENT", "AgentTimeBot/1.0")
+WEB_SCRAPE_TIMEOUT_SECONDS = float(os.environ.get("WEB_SCRAPE_TIMEOUT_SECONDS", "20"))
+WEB_SCRAPE_RETRIES = int(os.environ.get("WEB_SCRAPE_RETRIES", "2"))
+WEB_SCRAPE_RETRY_BACKOFF_SECONDS = float(os.environ.get("WEB_SCRAPE_RETRY_BACKOFF_SECONDS", "1.0"))
 
 
 def web_search_available() -> bool:
@@ -210,13 +215,25 @@ def _run_web_scrape(url: str, max_chars: int = 2000) -> str:
     cleaned = (url or "").strip()
     if not cleaned.lower().startswith(("http://", "https://")):
         return f"Invalid URL. Provide a full http(s) URL. Got: {cleaned or '<empty>'}"
-    try:
-        request = urllib.request.Request(cleaned, headers={"User-Agent": "AgentTimeBot/1.0"})
-        with urllib.request.urlopen(request, timeout=10) as response:
-            content_type = response.headers.get("Content-Type", "")
-            raw = response.read()
-    except Exception as exc:
-        return f"Unable to fetch {cleaned}: {exc}"
+    retries = max(0, WEB_SCRAPE_RETRIES)
+    timeout = max(1.0, WEB_SCRAPE_TIMEOUT_SECONDS)
+    request = urllib.request.Request(cleaned, headers={"User-Agent": "AgentTimeBot/1.0"})
+    content_type = ""
+    raw = b""
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                content_type = response.headers.get("Content-Type", "")
+                raw = response.read()
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt >= retries or not _is_retryable_web_error(exc):
+                return f"Unable to fetch {cleaned}: {exc}"
+            time.sleep(WEB_SCRAPE_RETRY_BACKOFF_SECONDS * (2**attempt))
+    if not raw and last_error is not None:
+        return f"Unable to fetch {cleaned}: {last_error}"
     content_type_lower = content_type.lower()
     if "application/pdf" in content_type_lower or raw.startswith(b"%PDF-"):
         return (
@@ -236,6 +253,19 @@ def _run_web_scrape(url: str, max_chars: int = 2000) -> str:
         )
     snippet = text[:max_chars].strip()
     return snippet or "No content found."
+
+
+def _is_retryable_web_error(error: Exception) -> bool:
+    if isinstance(error, TimeoutError):
+        return True
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code in {408, 425, 429, 500, 502, 503, 504}
+    if isinstance(error, urllib.error.URLError):
+        reason = str(getattr(error, "reason", "")).lower()
+        if any(token in reason for token in ("timed out", "timeout", "temporarily unavailable", "reset")):
+            return True
+    message = str(error).lower()
+    return any(token in message for token in ("timed out", "timeout", "temporarily unavailable", "connection reset"))
 
 
 def _run_notebook_eval(code: str) -> str:

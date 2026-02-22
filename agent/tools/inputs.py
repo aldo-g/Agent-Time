@@ -77,6 +77,17 @@ class PlaceBetInput(BaseModel):
     market_id: str = Field(..., description="Manifold market id or slug.")
     outcome: str = Field(..., description="Desired outcome (YES/NO or answer label).")
     amount: PositiveAmount = Field(..., description="Mana to wager on the outcome.")
+    belief_prob: ProbBounded | None = Field(
+        default=None,
+        description=(
+            "Your subjective probability (0-1) for the selected outcome. "
+            "Required by execution risk guard."
+        ),
+    )
+    market_prob: ProbBounded | None = Field(
+        default=None,
+        description="Optional explicit market probability (0-1). If omitted, inferred from market details.",
+    )
     limit_prob: ProbBounded | None = Field(
         default=None, description="Optional limit probability (0-1). Leave empty for a market order."
     )
@@ -84,6 +95,33 @@ class PlaceBetInput(BaseModel):
         default=None,
         description="Optional answer label for multi-choice markets when outcome alone is ambiguous.",
     )
+    requires_news_catalyst: bool = Field(
+        default=True,
+        description=(
+            "Set true for news-driven trades; then at least one trusted source URL is required. "
+            "Set false only for non-news theses."
+        ),
+    )
+    catalyst_urls: List[str] | None = Field(
+        default=None,
+        description=(
+            "Supporting source URLs for a news-driven thesis. Must include at least one trusted source domain "
+            "(for example AP, Reuters, FT)."
+        ),
+    )
+
+    @validator("catalyst_urls", pre=True)
+    def _coerce_catalyst_urls(cls, value: object) -> List[str] | None:
+        """Allow comma-separated string or list input for catalyst URLs."""
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            urls = [entry.strip() for entry in value.split(",") if entry.strip()]
+            return urls or None
+        if isinstance(value, list):
+            urls = [str(entry).strip() for entry in value if str(entry).strip()]
+            return urls or None
+        return None
 
 
 class SellPositionInput(BaseModel):

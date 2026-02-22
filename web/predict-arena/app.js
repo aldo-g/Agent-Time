@@ -1,21 +1,14 @@
-const summaryContainer = document.getElementById("summary-metrics");
-const agentGrid = document.getElementById("agent-grid");
-const detailTitle = document.getElementById("detail-title");
-const detailSubtitle = document.getElementById("detail-subtitle");
+const agentNameEl = document.getElementById("agent-name");
+const agentMetaEl = document.getElementById("agent-meta");
+const headerStatsEl = document.getElementById("header-stats");
 const detailContainer = document.getElementById("agent-details");
-
-let agents = [];
-let activeSlug = null;
+const footerUpdated = document.getElementById("footer-updated");
 
 const currency = (value) => {
   const formatted = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
   return `<img class="mana-icon" src="assets/Mana-Logo.svg" alt="Mana" />${formatted}`;
 };
 
-const percent = (value) => `${(value * 100).toFixed(0)}%`;
-const formatShares = (value) =>
-  new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(Number(value || 0));
-const formatProb = (value) => (value == null ? "n/a" : `${(value * 100).toFixed(1)}%`);
 const formatMana = (value) =>
   value == null ? "n/a" : new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value);
 const formatSignedMana = (value) => {
@@ -23,6 +16,7 @@ const formatSignedMana = (value) => {
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
   return `${sign}${formatMana(Math.abs(value))}`;
 };
+const formatProb = (value) => (value == null ? "n/a" : `${(value * 100).toFixed(1)}%`);
 const formatDelta = (value) => {
   if (value == null) return "n/a";
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
@@ -47,61 +41,37 @@ function totalGainPercent(agent) {
   return totalChange / initial;
 }
 
-function renderSummary(summary, lastUpdated) {
-  summaryContainer.innerHTML = "";
-  summaryContainer.style.display = "none";
-}
-
-function renderAgentCard(agent) {
-  const {
-    slug,
-    name,
-    provider,
-    model,
-    cash,
-    positionsValue,
-    winRate,
-    openPositions,
-    totalAssets,
-    color,
-    colorMuted
-  } = agent;
-  const displayTotal = Math.round(Number(totalAssets || 0));
-  const displayCash = Math.round(Number(cash || 0));
-  const displayPositions =
-    positionsValue != null ? Math.round(Number(positionsValue || 0)) : displayTotal - displayCash;
+function renderHeaderStats(agent) {
   const gainPct = totalGainPercent(agent);
-  const selected = slug === activeSlug ? "active" : "";
-  const accentStyle = `style="--agent-accent-strong: ${color || "var(--accent)"}; --agent-accent-soft: ${
-    colorMuted || "var(--accent-muted)"
-  };"`;
-  return `
-    <article class="agent-card ${selected}" data-slug="${slug}" ${accentStyle}>
-      <header>
-        <div>
-          <p class="agent-name">${name}</p>
-          <p class="badge">${provider}</p>
-        </div>
-        <small class="muted">${model}</small>
-      </header>
-      <div class="stat-row"><span>Total Value</span><strong>${currency(displayTotal)}</strong></div>
-      <div class="stat-row"><span>Invested</span><strong>${currency(displayPositions)}</strong></div>
-      <div class="stat-row"><span>Cash</span><strong>${currency(displayCash)}</strong></div>
-      <div class="stat-row"><span>Total % Gain</span><strong>${formatPercent(gainPct)}</strong></div>
-      <div class="stat-row"><span>Win Rate</span><strong>${percent(winRate)}</strong></div>
-      <div class="stat-row"><span>Open Positions</span><strong>${openPositions}</strong></div>
-    </article>
-  `;
-}
+  const gainClass = gainPct == null ? "" : gainPct >= 0 ? "positive" : "negative";
+  const cash = Math.round(Number(agent.cash || 0));
+  const totalAssets = Math.round(Number(agent.totalAssets || agent.bankroll || 0));
+  const positionsValue = agent.positionsValue != null
+    ? Math.round(Number(agent.positionsValue))
+    : totalAssets - cash;
 
-function renderAgentGrid() {
-  agentGrid.innerHTML = agents.map(renderAgentCard).join("");
-  agentGrid.querySelectorAll(".agent-card").forEach((card) => {
-    card.addEventListener("click", () => {
-      const slug = card.dataset.slug;
-      selectAgent(slug);
-    });
-  });
+  headerStatsEl.innerHTML = `
+    <div class="header-stat">
+      <span class="header-stat-label">Total Assets</span>
+      <span class="header-stat-value">${currency(totalAssets)}</span>
+    </div>
+    <div class="header-stat">
+      <span class="header-stat-label">Cash</span>
+      <span class="header-stat-value">${currency(cash)}</span>
+    </div>
+    <div class="header-stat">
+      <span class="header-stat-label">Invested</span>
+      <span class="header-stat-value">${currency(positionsValue)}</span>
+    </div>
+    <div class="header-stat">
+      <span class="header-stat-label">Total Gain</span>
+      <span class="header-stat-value ${gainClass}">${formatPercent(gainPct)}</span>
+    </div>
+    <div class="header-stat">
+      <span class="header-stat-label">Open Positions</span>
+      <span class="header-stat-value">${agent.openPositions ?? 0}</span>
+    </div>
+  `;
 }
 
 function tradeStatusPill(trade) {
@@ -212,25 +182,24 @@ function renderPositions(positions = []) {
     </div>
     <ul class="positions-list">
       ${positions
-        .map(
-          (position) => {
-            const shares = Number(position.shares || 0);
-            const avg = Number(position.avg_price ?? position.avgPrice);
-            const mark = Number(position.mark_price ?? position.markPrice);
-            const entryProb = Number.isFinite(avg) ? avg : null;
-            const currentProb = Number.isFinite(mark) ? mark : null;
-            const delta = Number.isFinite(avg) && Number.isFinite(mark) ? mark - avg : null;
-            const entryMana = Number.isFinite(avg) ? avg * shares : null;
-            const currentMana = Number.isFinite(mark) ? mark * shares : null;
-            const winValue = Number.isFinite(shares) ? shares : null;
-            const pnlValue = Number.isFinite(position.pnl)
-              ? position.pnl
-              : Number.isFinite(avg) && Number.isFinite(mark)
-              ? (mark - avg) * shares
-              : null;
-            const deltaClass = delta == null ? "" : delta >= 0 ? "positive" : "negative";
-            const pnlValueClass = pnlValue == null ? "" : pnlValue >= 0 ? "positive" : "negative";
-            return `
+        .map((position) => {
+          const shares = Number(position.shares || 0);
+          const avg = Number(position.avg_price ?? position.avgPrice);
+          const mark = Number(position.mark_price ?? position.markPrice);
+          const entryProb = Number.isFinite(avg) ? avg : null;
+          const currentProb = Number.isFinite(mark) ? mark : null;
+          const delta = Number.isFinite(avg) && Number.isFinite(mark) ? mark - avg : null;
+          const entryMana = Number.isFinite(avg) ? avg * shares : null;
+          const currentMana = Number.isFinite(mark) ? mark * shares : null;
+          const winValue = Number.isFinite(shares) ? shares : null;
+          const pnlValue = Number.isFinite(position.pnl)
+            ? position.pnl
+            : Number.isFinite(avg) && Number.isFinite(mark)
+            ? (mark - avg) * shares
+            : null;
+          const deltaClass = delta == null ? "" : delta >= 0 ? "positive" : "negative";
+          const pnlValueClass = pnlValue == null ? "" : pnlValue >= 0 ? "positive" : "negative";
+          return `
         <li>
           <div class="position-market">
             <p class="position-title">${position.question}</p>
@@ -260,51 +229,14 @@ function renderPositions(positions = []) {
             <span class="cell-value">${formatSignedMana(pnlValue)}</span>
           </div>
         </li>`;
-          }
-        )
+        })
         .join("")}
     </ul>
   `;
 }
 
 function renderDetail(agent) {
-  if (!agent) {
-    detailTitle.textContent = "Select an agent";
-    detailSubtitle.textContent = "Choose an agent from the leaderboard to see their positions and logs.";
-    detailTitle.style.color = "";
-    detailSubtitle.style.color = "";
-    detailContainer.removeAttribute("style");
-    detailContainer.innerHTML = `<p class="empty-state">No agent selected.</p>`;
-    return;
-  }
-  detailTitle.textContent = agent.name;
-  const latestRun = agent.history && agent.history.length ? agent.history[agent.history.length - 1].date : "n/a";
-  detailSubtitle.textContent = `${agent.provider} • ${agent.model} • Wallet ${agent.wallet} • Most recent run ${latestRun}`;
-  detailTitle.style.color = agent.color || "";
-  detailSubtitle.style.color = agent.color || "";
-  detailContainer.setAttribute(
-    "style",
-    `--detail-accent-strong: ${agent.color || "var(--accent)"}; --detail-accent-soft: ${
-      agent.colorMuted || "var(--accent-muted)"
-    };`
-  );
   detailContainer.innerHTML = `
-    <div class="detail-grid single">
-      <div class="profile-stats profile-stats-inline">
-        <div class="profile-stat">
-          <span class="profile-stat-label">Bankroll</span>
-          <span class="profile-stat-value">${currency(agent.bankroll)}</span>
-        </div>
-        <div class="profile-stat">
-          <span class="profile-stat-label">Cash</span>
-          <span class="profile-stat-value">${currency(agent.cash)}</span>
-        </div>
-        <div class="profile-stat">
-          <span class="profile-stat-label">Total Assets</span>
-          <span class="profile-stat-value">${currency(agent.totalAssets || agent.bankroll)}</span>
-        </div>
-      </div>
-    </div>
     <section class="detail-card tabbed-card">
       <div class="tab-header">
         <h3>Positions & Trades</h3>
@@ -347,28 +279,10 @@ function setupTabs(container) {
   });
 }
 
-function renderLoadingState() {
-  return `
-    <div class="loading-state">
-      <span class="spinner" aria-hidden="true"></span>
-      <span>Loading live data…</span>
-    </div>
-  `;
-}
-
-function selectAgent(slug) {
-  activeSlug = slug;
-  renderAgentGrid();
-  const agent = agents.find((entry) => entry.slug === slug);
-  renderDetail(agent);
-}
-
 const params = new URLSearchParams(window.location.search);
 const apiOverride = params.get("api");
 const apiEndpoint = apiOverride || "/api/live-runs?refresh=1";
 const fallbackEndpoint = "data/live_runs.json";
-const refreshMs = Number(params.get("refresh") || 3600000);
-let isRefreshing = false;
 
 async function loadPayload() {
   const endpoints = [apiEndpoint, fallbackEndpoint];
@@ -376,9 +290,7 @@ async function loadPayload() {
   for (const endpoint of endpoints) {
     try {
       const response = await fetch(endpoint, { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error(`${response.status} ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
       return await response.json();
     } catch (error) {
       lastError = error;
@@ -388,26 +300,30 @@ async function loadPayload() {
 }
 
 async function bootstrap() {
-  if (isRefreshing) {
-    return;
-  }
-  isRefreshing = true;
   try {
-    detailContainer.innerHTML = renderLoadingState();
     const payload = await loadPayload();
-    agents = payload.agents || [];
-    renderSummary(payload.summary || {}, payload.lastUpdated || new Date().toISOString());
-    renderAgentGrid();
-    if (agents.length) {
-      selectAgent(agents[0].slug);
+    const agent = (payload.agents || [])[0];
+    if (!agent) {
+      detailContainer.innerHTML = `<p class="empty-state">No agent data found.</p>`;
+      return;
+    }
+
+    agentNameEl.textContent = agent.name;
+    const latestRun = agent.history && agent.history.length
+      ? agent.history[agent.history.length - 1].date
+      : "n/a";
+    agentMetaEl.textContent = `${agent.provider} • ${agent.model} • Wallet ${agent.wallet} • Last run ${latestRun}`;
+
+    renderHeaderStats(agent);
+    renderDetail(agent);
+
+    if (payload.lastUpdated) {
+      footerUpdated.textContent = `Last updated: ${new Date(payload.lastUpdated).toLocaleString()}`;
     }
   } catch (error) {
+    agentNameEl.textContent = "Error";
     detailContainer.innerHTML = `<p class="empty-state">Unable to load data: ${error}</p>`;
-  } finally {
-    isRefreshing = false;
   }
 }
 
 bootstrap();
-// Only fetch on load; users can refresh the page manually when needed.
-// refreshMs remains available via ?refresh= for future use if re-enabled.

@@ -26,7 +26,7 @@ if [[ "${AGENT_VERBOSE:-}" =~ ^(1|true|yes)$ ]]; then
   VERBOSE_FLAG=(--verbose)
 fi
 
-python -m agent.multi_runner \
+python -m agent.single_runner \
   --agent "${AGENT_NAME}" \
   --skip-market-fetch \
   --market-cache "${CACHE_PATH}" \

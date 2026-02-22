@@ -45,8 +45,14 @@ from agent.tools.web import (
 )
 
 
-def build_agent_tools() -> List[StructuredTool]:
-    """Return the list of LangChain tools exposed to the trading agent."""
+def build_agent_tools(mode: str = "full") -> List[StructuredTool]:
+    """Return the list of LangChain tools exposed to the trading agent.
+
+    mode:
+    - full: all tools
+    - plan: all non-trading tools
+    - execute: only trading execution tools
+    """
     fetch_tool = StructuredTool.from_function(
         name="manifold_markets",
         func=_run_fetch_markets,
@@ -100,8 +106,8 @@ def build_agent_tools() -> List[StructuredTool]:
         func=_run_place_bet,
         description=(
             "Submit a Manifold bet using play-money Mana. Provide the market_id, desired outcome or answer "
-            "label, optional limit probability, and Mana amount. The tool will fail if you try to wager more "
-            "than the available balance."
+            "label, Mana amount, and belief_prob. The execution guard rejects non-positive edge, oversize bets "
+            "(Kelly/risk caps), and news-driven trades without at least one trusted catalyst URL."
         ),
         args_schema=PlaceBetInput,
     )
@@ -185,4 +191,11 @@ def build_agent_tools() -> List[StructuredTool]:
             bluesky_tool,
         ]
     )
+    normalized_mode = (mode or "full").strip().lower()
+    if normalized_mode == "plan":
+        blocked = {"manifold_place_bet", "manifold_sell_position"}
+        return [tool for tool in tools if tool.name not in blocked]
+    if normalized_mode == "execute":
+        allowed = {"manifold_place_bet", "manifold_sell_position"}
+        return [tool for tool in tools if tool.name in allowed]
     return tools

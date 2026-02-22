@@ -248,6 +248,8 @@ def _run_risk_gate(
         suggested_fraction = max(0.0, edge * config.KELLY_MULTIPLIER)
         suggested_amount = bankroll * suggested_fraction if bankroll else None
         lines.append(f"Belief prob: {belief_prob:.2%}; market prob: {market_prob:.2%}; edge: {edge:.2%}.")
+        if edge <= 0:
+            warnings.append("Edge is non-positive; skip this bet unless new information improves the edge.")
         if suggested_amount is not None:
             lines.append(f"Kelly-style cap: ${suggested_amount:,.2f} (multiplier {config.KELLY_MULTIPLIER:.2f}).")
     else:

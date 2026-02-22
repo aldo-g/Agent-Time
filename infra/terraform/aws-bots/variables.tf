@@ -35,7 +35,7 @@ variable "image_tag" {
 }
 
 variable "market_limit" {
-  description = "Market limit passed to multi_runner."
+  description = "Market limit passed to single_runner."
   type        = number
   default     = 10
 }
@@ -95,7 +95,7 @@ variable "market_cache_wait_seconds" {
 }
 
 variable "max_attempts" {
-  description = "Max attempts per run passed to multi_runner."
+  description = "Max attempts per run passed to single_runner."
   type        = number
   default     = 2
 }

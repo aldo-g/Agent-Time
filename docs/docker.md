@@ -16,9 +16,8 @@ Optional:
  
 Schema:
 - The Postgres container initializes the schema from `db/init/*.sql`.
-- Agents do not create schema at runtime.
-- Agents are seeded from `agents.json` during first-time Postgres initialization.
-- The market fetcher creates a session row and run placeholders for each agent.
+- Runtime components also call `ensure_schema()` for compatibility with existing volumes.
+- The market fetcher reads `agent.json`, creates a session row, and inserts one run placeholder.
 
 ### Run
 ```bash

@@ -8,7 +8,6 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
-      - ./agents.json:/agents.json:ro
     ports:
       - "5432:5432"
 
@@ -18,17 +17,17 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       PREDICT_ARENA_MARKET_CACHE: /data/shared_markets.json
-      AGENT_CONFIG_PATH: /app/agents.json
+      AGENT_CONFIG_PATH: /app/agent.json
       AGENT_DISABLE_DOTENV: "1"
     volumes:
       - ./data:/data
-      - ./agents.json:/app/agents.json:ro
+      - ./agent.json:/app/agent.json:ro
     depends_on:
       - postgres
 
   agent-gpt:
     build: .
-    command: ["/app/scripts/run_agent.sh", "gpt-runner"]
+    command: ["/app/scripts/run_single_agent.sh", "gpt-runner"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
       AGENT_SKIP_SCHEMA_INIT: "1"
@@ -36,7 +35,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       MANIFOLD_API_KEY_OPENAI: ${MANIFOLD_API_KEY_OPENAI}
       PREDICT_ARENA_MARKET_CACHE: /data/shared_markets.json
-      AGENT_CONFIG_PATH: /app/agents.json
+      AGENT_CONFIG_PATH: /app/agent.json
       AGENT_RESULTS_PATH: /results/gpt_runs.jsonl
       AGENT_TRADE_LOG_PATH: /results/trades.jsonl
       AGENT_MAX_ATTEMPTS: ${AGENT_MAX_ATTEMPTS:-2}
@@ -48,7 +47,7 @@ services:
     volumes:
       - ./data:/data
       - ./results/gpt:/results
-      - ./agents.json:/app/agents.json:ro
+      - ./agent.json:/app/agent.json:ro
     depends_on:
       market-fetcher:
         condition: service_completed_successfully

@@ -1,0 +1,7 @@
+{
+  "name": "gpt-runner",
+  "model_provider": "openai",
+  "model": "gpt-5-mini",
+  "manifold_key_env": "MANIFOLD_API_KEY_OPENAI",
+  "instruction_override": null
+}

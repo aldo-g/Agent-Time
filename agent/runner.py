@@ -21,6 +21,7 @@ DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "8"))
 DEFAULT_TEMPERATURE = float(os.environ.get("AGENT_TEMPERATURE", "0.2"))
 DEFAULT_STEP_DELAY_SEC = os.environ.get("AGENT_STEP_DELAY_SEC", "0")
+DEFAULT_WARN_MISSING_TOKENS = os.environ.get("AGENT_WARN_MISSING_TOKENS", "0")
 DEFAULT_INSTRUCTION = os.environ.get(
     "AGENT_INSTRUCTION",
     (
@@ -44,6 +45,11 @@ def _resolve_step_delay() -> float:
     return max(0.0, _coerce_float(DEFAULT_STEP_DELAY_SEC, 0.0))
 
 
+def _warn_missing_tokens_enabled() -> bool:
+    raw = (DEFAULT_WARN_MISSING_TOKENS or "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _build_llm(model: str, temperature: float):
     try:
         from langchain_openai import ChatOpenAI
@@ -55,30 +61,41 @@ def _build_llm(model: str, temperature: float):
     return ChatOpenAI(model=model, temperature=temperature)
 
 
-def _build_prompt() -> ChatPromptTemplate:
+def _build_plan_prompt() -> ChatPromptTemplate:
     system_message = textwrap.dedent(
         """
-        You are Agent-Time, an autonomous prediction-market operator. Your goal is to make money on
-        Manifold with play-money Mana while respecting risk constraints and liquidity. Each run must gather context
-        (portfolio, markets, news), plan trades, and output a clear action plan without assuming near-term follow-up.
-        Conserve bankroll and avoid overbetting in any single run so you can keep trading over time. Always begin
-        by calling the `manifold_portfolio` tool so you know the account's cash, realized/unrealized PnL, and current
-        exposures, then call `portfolio_analytics` to check concentration before sizing trades. Call each of
-        `manifold_portfolio` and `portfolio_analytics` at most once per run unless a prior call failed; repeated calls
-        are treated as an error. Check market close times with `event_timer` and resolution criteria before trading, but
-        you may trade any market that fits your thesis. Use
-        `duckduckgo_search` (and `web_scrape` when you cite a specific URL) whenever you cite catalysts or need fresh information—back
-        up each recommendation with at least one relevant fact. Call `manifold_market_details` and `manifold_market_history`
-        whenever you need the full set of answers/odds or recent flow for a market. Before placing any wager, run `risk_gate`
-        to size it against bankroll and, when using limits, call `limit_order_preview` to estimate fill vs slippage. Once you have
-        justified a trade (including bankroll checks and catalysts) immediately call `manifold_place_bet` to execute it before moving on.
-        Make exactly one tool call at a time, then wait for its result before issuing another call—never batch or request multiple tools
-        simultaneously. Do not leave actionable trades as suggestions—either submit them or explain why they were rejected. If you make no
-        trades, state a clear reason using a line that begins with "No-Trade Reason -". When you are satisfied, provide a final summary with
-        the following format:
-        1) A short paragraph beginning with "Summary -" describing what was accomplished.
-        2) For each executed trade, include lines formatted exactly as "Trade - <market and action>" and on the next line "Reason - <concise justification>".
-        Mention remaining cash or pending research after the trade list if relevant.
+        You are Agent-Time in PLAN PHASE.
+        Trading tools are not available in this phase. Your job is to research and produce an execution-ready plan.
+        Always start by calling `manifold_portfolio`, then `portfolio_analytics`. Use market/news tools to gather evidence.
+        Call `risk_gate` for each proposed BUY action and include the same belief_prob and market_prob you intend to execute.
+
+        Output MUST be valid JSON (no markdown fences) with this schema:
+        {
+          "summary": "<short planning summary>",
+          "actions": [
+            {
+              "action": "place_bet" | "sell_position",
+              "market_id": "<id-or-slug>",
+              "outcome": "<YES/NO or answer label>",
+              "amount": <number, required for place_bet>,
+              "shares": <number|null, optional for sell_position>,
+              "belief_prob": <number|null, required for place_bet>,
+              "market_prob": <number|null>,
+              "limit_prob": <number|null>,
+              "answer": "<string|null>",
+              "requires_news_catalyst": <true|false>,
+              "catalyst_urls": ["<url>", "..."],
+              "reason": "<concise rationale>"
+            }
+          ],
+          "no_trade_reason": "<string, required when actions is empty>"
+        }
+
+        Rules:
+        - Include only actionable trades; no placeholders.
+        - For news-driven actions, include at least one trusted source URL in catalyst_urls.
+        - If no trade qualifies, return actions=[] with no_trade_reason.
+        - Make exactly one tool call at a time.
         """
     ).strip()
     return ChatPromptTemplate.from_messages(
@@ -91,9 +108,43 @@ def _build_prompt() -> ChatPromptTemplate:
     )
 
 
-def _build_agent_executor(model: str, temperature: float, max_steps: int, verbose: bool) -> AgentExecutor:
-    tools = build_agent_tools()
-    prompt = _build_prompt()
+def _build_execution_prompt() -> ChatPromptTemplate:
+    system_message = textwrap.dedent(
+        """
+        You are Agent-Time in EXECUTION PHASE.
+        Use only available trade tools to execute the approved plan. Do not invent new trades and do not perform research.
+        For each planned action, attempt exactly one tool call (or skip with reason if the action is invalid).
+        If a tool returns a skip/error message, report it and continue to the next planned action.
+
+        Final output format:
+        1) "Summary - <what was executed or skipped>"
+        2) For each executed trade:
+           "Trade - <executed action>"
+           "Reason - <why executed>"
+        3) For each skipped planned action:
+           "Skipped - <action>"
+           "Reason - <tool/message>"
+        """
+    ).strip()
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", system_message),
+            MessagesPlaceholder(variable_name="chat_history", optional=True),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ]
+    )
+
+
+def _build_agent_executor(
+    model: str,
+    temperature: float,
+    max_steps: int,
+    *,
+    tools,
+    prompt: ChatPromptTemplate,
+    react_phase_rules: str,
+) -> AgentExecutor:
     llm = _build_llm(model, temperature)
     agent = None
     tool_agent_error: Exception | None = None
@@ -108,31 +159,29 @@ def _build_agent_executor(model: str, temperature: float, max_steps: int, verbos
     if agent is None:
         # Some provider clients may not support tool binding; fall back to a ReAct-style agent
         # with an explicit ReAct-format prompt.
-        react_prompt = PromptTemplate.from_template(
-            """
-            You are Agent-Time, an autonomous Manifold trading agent. Use the tools below to gather context and place trades.
-            Required workflow:
-            - Call `manifold_portfolio` once near the start.
-            - Call `portfolio_analytics` once near the start.
-            - Do not repeatedly call `manifold_portfolio` or `portfolio_analytics`; repeated calls can fail the run.
-            - Use `risk_gate` before each `manifold_place_bet`.
+        react_prompt = (
+            PromptTemplate.from_template(
+                """
+                You are Agent-Time using ReAct fallback.
+                {phase_rules}
 
-            You have access to the following tools:
-            {tools}
+                You have access to the following tools:
+                {tools}
 
-            Use this format:
-            Question: the input you must solve
-            Thought: your reasoning
-            Action: the tool to use, one of [{tool_names}]
-            Action Input: the input to that tool
-            Observation: the tool result
-            ...(repeat Thought/Action/Action Input/Observation as needed)...
-            Thought: I now have the final answer
-            Final Answer: your concise result
+                Use this format:
+                Question: the input you must solve
+                Thought: your reasoning
+                Action: the tool to use, one of [{tool_names}]
+                Action Input: the input to that tool
+                Observation: the tool result
+                ...(repeat Thought/Action/Action Input/Observation as needed)...
+                Thought: I now have the final answer
+                Final Answer: your concise result
 
-            Question: {input}
-            {agent_scratchpad}
-            """
+                Question: {input}
+                {agent_scratchpad}
+                """
+            ).partial(phase_rules=react_phase_rules)
         )
         agent = create_react_agent(llm, tools, react_prompt)
         if tool_agent_error:
@@ -146,22 +195,7 @@ def _build_agent_executor(model: str, temperature: float, max_steps: int, verbos
     )
 
 
-def run_daily_session(
-    instruction: str,
-    *,
-    model: str,
-    temperature: float,
-    max_steps: int,
-    verbose: bool = False,
-) -> Dict[str, Any]:
-    """Execute an autonomous session and return the agent's final output."""
-    reset_inspected_markets()
-    reset_portfolio_tool_state()
-    executor = _build_agent_executor(model, temperature, max_steps, verbose)
-    inputs = {
-        "input": instruction,
-        "chat_history": [],
-    }
+def _phase_callbacks(*, verbose: bool) -> tuple[ToolCallTracker, TokenUsageTracker, list]:
     tracker = ToolCallTracker()
     token_tracker = TokenUsageTracker()
     callbacks = [tracker, token_tracker]
@@ -170,41 +204,116 @@ def run_daily_session(
         callbacks.append(StepDelay(step_delay))
     if verbose:
         callbacks.append(ConsoleLogger())
+    return tracker, token_tracker, callbacks
+
+
+def run_daily_session(
+    instruction: str,
+    *,
+    model: str,
+    temperature: float,
+    max_steps: int,
+    verbose: bool = False,
+) -> Dict[str, Any]:
+    """Execute an autonomous two-phase session and return the final output."""
+    reset_inspected_markets()
+    reset_portfolio_tool_state()
     started_at = datetime.now(timezone.utc)
     start_time = time.perf_counter()
+    plan_tools = build_agent_tools(mode="plan")
+    execute_tools = build_agent_tools(mode="execute")
+    plan_executor = _build_agent_executor(
+        model,
+        temperature,
+        max_steps,
+        tools=plan_tools,
+        prompt=_build_plan_prompt(),
+        react_phase_rules=(
+            "This is PLAN PHASE. Trading tools are unavailable. Research with tools, then produce JSON plan only."
+        ),
+    )
+    execute_executor = _build_agent_executor(
+        model,
+        temperature,
+        max_steps,
+        tools=execute_tools,
+        prompt=_build_execution_prompt(),
+        react_phase_rules=(
+            "This is EXECUTION PHASE. Use only trade tools and execute the provided plan. "
+            "Do not add new trades."
+        ),
+    )
+    plan_tracker, plan_token_tracker, plan_callbacks = _phase_callbacks(verbose=verbose)
+    execute_tracker, execute_token_tracker, execute_callbacks = _phase_callbacks(verbose=verbose)
+    plan_inputs = {
+        "input": instruction,
+        "chat_history": [],
+    }
     try:
-        result = executor.invoke(inputs, config={"callbacks": callbacks})
+        plan_result = plan_executor.invoke(plan_inputs, config={"callbacks": plan_callbacks})
     except Exception:  # noqa: BLE001
-        logging.exception("Agent execution failed.")
+        logging.exception("Plan phase failed.")
         raise
-    if tracker.wallet_mismatch_error:
-        raise RuntimeError(tracker.wallet_mismatch_error)
+    plan_output = plan_result.get("output") if isinstance(plan_result, dict) else plan_result
+    execute_input = textwrap.dedent(
+        f"""
+        Original objective:
+        {instruction}
+
+        Approved plan JSON from planning phase:
+        {plan_output}
+        """
+    ).strip()
+    try:
+        execute_result = execute_executor.invoke(
+            {"input": execute_input, "chat_history": []},
+            config={"callbacks": execute_callbacks},
+        )
+    except Exception:  # noqa: BLE001
+        logging.exception("Execution phase failed.")
+        raise
+    if plan_tracker.wallet_mismatch_error:
+        raise RuntimeError(plan_tracker.wallet_mismatch_error)
+    if execute_tracker.wallet_mismatch_error:
+        raise RuntimeError(execute_tracker.wallet_mismatch_error)
     expected_wallet = os.environ.get("AGENT_EXPECTED_WALLET") or None
-    if expected_wallet and tracker.wallets_seen:
+    wallets_seen = set(plan_tracker.wallets_seen).union(execute_tracker.wallets_seen)
+    if expected_wallet and wallets_seen:
         expected_normalized = expected_wallet.strip().lower()
-        seen_normalized = {wallet.strip().lower() for wallet in tracker.wallets_seen}
+        seen_normalized = {wallet.strip().lower() for wallet in wallets_seen}
         if expected_normalized not in seen_normalized:
-            seen = ", ".join(sorted(tracker.wallets_seen))
+            seen = ", ".join(sorted(wallets_seen))
             raise RuntimeError(f"Expected wallet '{expected_wallet}' but saw {seen}.")
-    if token_tracker.usage.total_tokens == 0:
+    total_tokens = plan_token_tracker.usage.total_tokens + execute_token_tracker.usage.total_tokens
+    if total_tokens == 0 and _warn_missing_tokens_enabled():
         logging.warning(
             "Token usage metadata missing for model %s. Tokens in/out will be 0 for this run.",
             model,
         )
     finished_at = datetime.now(timezone.utc)
     duration_ms = int((time.perf_counter() - start_time) * 1000)
+    result = execute_result if isinstance(execute_result, dict) else {"output": execute_result}
     if isinstance(result, dict):
-        result["tool_calls"] = tracker.successful_tools
-        result["tool_calls_unique"] = sorted(set(tracker.successful_tools))
-        result["tool_call_failures"] = tracker.failed_tools
-        result["captured_trades"] = tracker.trade_outputs
-        result["tool_call_errors"] = tracker.failed_tool_errors
+        successful_tools = plan_tracker.successful_tools + execute_tracker.successful_tools
+        failed_tools = plan_tracker.failed_tools + execute_tracker.failed_tools
+        trade_outputs = plan_tracker.trade_outputs + execute_tracker.trade_outputs
+        failed_tool_errors = plan_tracker.failed_tool_errors + execute_tracker.failed_tool_errors
+        result["plan_output"] = plan_output
+        result["tool_calls"] = successful_tools
+        result["tool_calls_unique"] = sorted(set(successful_tools))
+        result["tool_call_failures"] = failed_tools
+        result["captured_trades"] = trade_outputs
+        result["tool_call_errors"] = failed_tool_errors
         result["run_started_at"] = started_at.isoformat()
         result["run_finished_at"] = finished_at.isoformat()
         result["run_duration_ms"] = duration_ms
-        result["tokens_in"] = token_tracker.usage.prompt_tokens
-        result["tokens_out"] = token_tracker.usage.completion_tokens
-        result["tokens_total"] = token_tracker.usage.total_tokens
+        result["tokens_in"] = (
+            plan_token_tracker.usage.prompt_tokens + execute_token_tracker.usage.prompt_tokens
+        )
+        result["tokens_out"] = (
+            plan_token_tracker.usage.completion_tokens + execute_token_tracker.usage.completion_tokens
+        )
+        result["tokens_total"] = total_tokens
     return result
 
 

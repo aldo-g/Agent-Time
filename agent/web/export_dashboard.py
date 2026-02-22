@@ -299,7 +299,7 @@ def _latest_timestamp(*collections: Iterable[Dict[str, Any]]) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--agents", default="agents.json", help="Path to agents.json.")
+    parser.add_argument("--agents", default="agent.json", help="Path to agent.json.")
     parser.add_argument("--results", default="results/gpt_runs.jsonl", help="JSONL run log path.")
     parser.add_argument("--trades", default="results/trades.jsonl", help="JSONL trade log path.")
     parser.add_argument("--markets", default="data/shared_markets.json", help="Shared market cache path.")
@@ -319,6 +319,8 @@ def build_payload(
     markets_path: Path,
 ) -> Dict[str, Any]:
     agents_payload = _load_json(agents_path) or []
+    if isinstance(agents_payload, dict):
+        agents_payload = [agents_payload]
     agent_configs = [
         AgentConfig.from_dict(entry)
         for entry in agents_payload

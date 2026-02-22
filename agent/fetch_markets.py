@@ -19,8 +19,10 @@ def _load_agents_config(path: Path) -> list[dict]:
         raise FileNotFoundError(f"Agent config file not found: {path}")
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
+    if isinstance(data, dict):
+        data = [data]
     if not isinstance(data, list):
-        raise ValueError("Agent config file must contain a JSON list.")
+        raise ValueError("Agent config file must contain a JSON object or a JSON list.")
     return data
 
 
@@ -59,31 +61,31 @@ def main() -> None:
         try:
             db_writer = DbWriter.from_env()
             db_writer.ping()
-            agents_path = Path(os.environ.get("AGENT_CONFIG_PATH", "agents.json"))
+            db_writer.ensure_schema()
+            agents_path = Path(os.environ.get("AGENT_CONFIG_PATH", "agent.json"))
             agents = _load_agents_config(agents_path)
+            if len(agents) != 1:
+                raise ValueError(
+                    f"Single-agent mode expects exactly 1 agent entry in {agents_path}; found {len(agents)}."
+                )
             session_id = db_writer.create_session(
                 started_at=fetched_at,
                 market_json=snapshot,
                 notes=None,
             )
-            for agent in agents:
-                name = agent.get("name")
-                model_provider = agent.get("model_provider")
-                model = agent.get("model")
-                if not name or not model_provider or not model:
-                    raise ValueError("Agent config entry missing required fields.")
-                agent_id = db_writer.upsert_agent(
-                    agent_name=name,
-                    model_provider=model_provider,
-                    model=model,
-                    last_seen_at=fetched_at,
-                )
-                db_writer.create_run_placeholder(
-                    session_id=session_id,
-                    agent_id=agent_id,
-                    started_at=fetched_at,
-                )
-            print(f"Session {session_id} created with {len(agents)} runs.")
+            agent = agents[0]
+            name = agent.get("name")
+            model_provider = agent.get("model_provider")
+            model = agent.get("model")
+            if not name or not model_provider or not model:
+                raise ValueError("Agent config entry missing required fields.")
+            db_writer.create_run_placeholder(
+                session_id=session_id,
+                model_provider=str(model_provider),
+                model=str(model),
+                started_at=fetched_at,
+            )
+            print(f"Session {session_id} created with 1 run.")
         except Exception as exc:  # noqa: BLE001
             print(f"Database not configured or unavailable. Skipping DB writes. ({exc})")
 

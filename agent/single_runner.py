@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Orchestrate one or more Agent-Time agents in a single run."""
+"""Run Agent-Time in single-agent mode."""
 
 from __future__ import annotations
 
@@ -22,10 +22,10 @@ from agent.runner import (
     DEFAULT_TEMPERATURE,
     run_daily_session,
 )
-from agent.db import DbWriter, TradeRecord
+from agent.db import DbWriter, EquitySnapshotRecord, RunActionRecord, TradeExecutionRecord
 from agent.tools.manifold.config import DEFAULT_TRADE_LOG_PATH, TRADE_LOG_ENV
 
-DEFAULT_CONFIG_PATH = os.environ.get("AGENT_CONFIG_PATH", "agents.json")
+DEFAULT_CONFIG_PATH = os.environ.get("AGENT_CONFIG_PATH", "agent.json")
 DEFAULT_RESULTS_PATH = os.environ.get("AGENT_RESULTS_PATH", "results/gpt_runs.jsonl")
 MARKET_CACHE_ENV = "PREDICT_ARENA_MARKET_CACHE"
 DEFAULT_MARKET_CACHE_PATH = Path(os.environ.get(MARKET_CACHE_ENV, "data/shared_markets.json"))
@@ -102,8 +102,10 @@ def load_agent_configs(path: str) -> List[AgentConfig]:
         raise FileNotFoundError(f"Agent config file not found: {config_path}")
     with config_path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
+    if isinstance(data, dict):
+        data = [data]
     if not isinstance(data, list):
-        raise ValueError("Agent config file must contain a JSON list.")
+        raise ValueError("Agent config file must contain a JSON object or a JSON list.")
     configs = [AgentConfig.from_dict(item) for item in data]
     if not configs:
         raise ValueError("Agent config file is empty. Add at least one agent entry.")
@@ -279,6 +281,191 @@ def _parse_trades_from_output(output: object) -> List[Dict[str, str]]:
     return filtered
 
 
+def _parse_executed_tool_trades(captured_trades: object) -> List[Dict[str, str]]:
+    """Parse only executed trade tool outputs (exclude skipped/failed intents)."""
+    if not isinstance(captured_trades, list):
+        return []
+    trades: List[Dict[str, str]] = []
+    seen: set[str] = set()
+    for entry in captured_trades:
+        text = str(entry or "").strip()
+        if not text:
+            continue
+        lower = text.lower()
+        if "bet skipped" in lower or "sell skipped" in lower:
+            continue
+        wager_match = re.search(
+            r"wagered\s+([\d.,]+)\s+mana\s+on\s+'([^']+)'\s+in\s+market\s+([A-Za-z0-9_-]+)"
+            r"(?:.*?bet id:?\s*([A-Za-z0-9_-]+))?",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if wager_match:
+            amount, outcome, market_id, bet_id = wager_match.groups()
+            parts = [f"Wagered {amount} MANA on '{outcome}' in market {market_id}"]
+            if bet_id:
+                parts.append(f"(Bet ID {bet_id})")
+            trade_text = " ".join(parts)
+            signature = f"buy:{trade_text}"
+            if signature not in seen:
+                seen.add(signature)
+                trades.append(
+                    {
+                        "trade": trade_text,
+                        "reason": "",
+                        "amount": amount.replace(",", ""),
+                    }
+                )
+            continue
+        sell_match = re.search(
+            r"sold\s+([\d.,]+)\s+shares\s+of\s+'([^']+)'\s+in\s+market\s+([A-Za-z0-9_-]+)"
+            r"(?:.*?bet id:?\s*([A-Za-z0-9_-]+))?",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if sell_match:
+            shares, outcome, market_id, bet_id = sell_match.groups()
+            parts = [f"Sold {shares} shares of '{outcome}' in market {market_id}"]
+            if bet_id:
+                parts.append(f"(Bet ID {bet_id})")
+            trade_text = " ".join(parts)
+            signature = f"sell:{trade_text}"
+            if signature not in seen:
+                seen.add(signature)
+                trades.append(
+                    {
+                        "trade": trade_text,
+                        "reason": "",
+                        "amount": None,
+                    }
+                )
+            continue
+    return trades
+
+
+def _parse_plan_payload(plan_output: object) -> dict[str, Any] | None:
+    if isinstance(plan_output, dict):
+        return plan_output
+    if not isinstance(plan_output, str):
+        return None
+    text = plan_output.strip()
+    if not text:
+        return None
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", text).strip()
+        text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _coerce_float(value: object) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _coerce_int(value: object) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except Exception:
+        return None
+
+
+def _normalize_action_type(value: object) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"place_bet", "buy", "bet"}:
+        return "place_bet"
+    if raw in {"sell_position", "sell"}:
+        return "sell_position"
+    return raw or "unknown"
+
+
+def _plan_actions_from_output(plan_output: object) -> list[dict[str, Any]]:
+    payload = _parse_plan_payload(plan_output)
+    if not payload:
+        return []
+    actions = payload.get("actions")
+    if not isinstance(actions, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for idx, action in enumerate(actions):
+        if not isinstance(action, dict):
+            continue
+        normalized.append(
+            {
+                "action_index": idx,
+                "action_type": _normalize_action_type(action.get("action") or action.get("action_type")),
+                "market_id": action.get("market_id"),
+                "outcome": action.get("outcome"),
+                "amount": _coerce_float(action.get("amount")),
+                "shares": _coerce_float(action.get("shares")),
+                "belief_prob": _coerce_float(action.get("belief_prob")),
+                "market_prob": _coerce_float(action.get("market_prob")),
+                "edge_at_plan": (
+                    _coerce_float(action.get("edge"))
+                    if _coerce_float(action.get("edge")) is not None
+                    else (
+                        _coerce_float(action.get("belief_prob")) - _coerce_float(action.get("market_prob"))
+                        if _coerce_float(action.get("belief_prob")) is not None
+                        and _coerce_float(action.get("market_prob")) is not None
+                        else None
+                    )
+                ),
+                "limit_prob": _coerce_float(action.get("limit_prob")),
+                "answer": action.get("answer"),
+                "requires_news_catalyst": (
+                    bool(action.get("requires_news_catalyst"))
+                    if action.get("requires_news_catalyst") is not None
+                    else None
+                ),
+                "catalyst_urls": (
+                    [str(url) for url in action.get("catalyst_urls", []) if str(url).strip()]
+                    if isinstance(action.get("catalyst_urls"), list)
+                    else None
+                ),
+                "reason": str(action.get("reason") or "").strip() or None,
+            }
+        )
+    return normalized
+
+
+def _match_plan_action_for_log(
+    *,
+    action: str | None,
+    market_id: str | None,
+    outcome: str | None,
+    run_actions: list[RunActionRecord],
+    used_indices: set[int],
+) -> int | None:
+    desired_type = "place_bet" if (action or "").upper() == "BUY" else "sell_position"
+    market_id_norm = str(market_id or "").strip()
+    outcome_norm = str(outcome or "").strip().lower()
+    for idx, planned in enumerate(run_actions):
+        if idx in used_indices:
+            continue
+        if planned.action_type != desired_type:
+            continue
+        if market_id_norm and str(planned.market_id or "").strip() != market_id_norm:
+            continue
+        if outcome_norm and str(planned.outcome or "").strip().lower() != outcome_norm:
+            continue
+        return idx
+    for idx, planned in enumerate(run_actions):
+        if idx in used_indices:
+            continue
+        if planned.action_type == desired_type:
+            return idx
+    return None
+
+
 def _has_declared_trade_lines(output: object) -> bool:
     if not isinstance(output, str):
         return False
@@ -370,31 +557,6 @@ def _load_trade_log_entries(
     return entries
 
 
-def _match_trade_reason(
-    parsed_trades: List[Dict[str, str]],
-    log_entry: Dict[str, Any],
-    used_indices: set[int],
-) -> Dict[str, str] | None:
-    market_id = str(log_entry.get("market_id") or "")
-    market_slug = str(log_entry.get("market_slug") or "")
-    for idx, trade in enumerate(parsed_trades):
-        if idx in used_indices:
-            continue
-        trade_text = trade.get("trade") or ""
-        if market_id and market_id in trade_text:
-            used_indices.add(idx)
-            return trade
-        if market_slug and market_slug in trade_text:
-            used_indices.add(idx)
-            return trade
-    for idx, trade in enumerate(parsed_trades):
-        if idx in used_indices:
-            continue
-        used_indices.add(idx)
-        return trade
-    return None
-
-
 def _print_session_summary(
     market_events: List[EventSummary] | None,
     agent_records: List[Dict[str, Any]],
@@ -440,7 +602,13 @@ def run_multi_agent(
     max_attempts: int = 2,
     verbose: bool = False,
 ) -> None:
-    # Ensure a shared MANIFOLD_API_KEY cannot leak across agents.
+    if len(configs) != 1:
+        names = ", ".join(cfg.name for cfg in configs)
+        raise ValueError(
+            "Single-agent mode expects exactly one selected agent config. "
+            f"Selected {len(configs)}: {names}"
+        )
+    # Ensure MANIFOLD_API_KEY is always set explicitly for the configured runner.
     os.environ.pop("MANIFOLD_API_KEY", None)
     cache_path = market_cache_path or DEFAULT_MARKET_CACHE_PATH
     market_events = (
@@ -452,29 +620,23 @@ def run_multi_agent(
     db_writer: DbWriter | None = None
     session_id: int | None = None
     session_started_at = datetime.now(timezone.utc)
-    agent_ids: Dict[str, int] = {}
     run_ids: Dict[str, int] = {}
     try:
         db_writer = DbWriter.from_env()
         db_writer.ping()
+        db_writer.ensure_schema()
         latest_session = db_writer.get_latest_session()
         if not latest_session:
             raise RuntimeError("No session found. Run market-fetcher first.")
         session_id = latest_session["id"]
         session_started_at = latest_session["started_at"]
         for cfg in configs:
-            agent_id = db_writer.upsert_agent(
-                agent_name=cfg.name,
-                model_provider=cfg.model_provider,
-                model=cfg.model,
-                last_seen_at=session_started_at,
-            )
-            agent_ids[cfg.name] = agent_id
-            run_id = db_writer.get_run_id(session_id=session_id, agent_id=agent_id)
+            run_id = db_writer.get_run_id(session_id=session_id)
             if run_id is None:
                 run_id = db_writer.create_run_placeholder(
                     session_id=session_id,
-                    agent_id=agent_id,
+                    model_provider=cfg.model_provider,
+                    model=cfg.model,
                     started_at=session_started_at,
                 )
             run_ids[cfg.name] = run_id
@@ -489,6 +651,7 @@ def run_multi_agent(
         print(f"\n=== Running agent '{cfg.name}' ({cfg.model_provider}:{cfg.model}) ===")
         success = False
         output: str | Dict[str, Any] | None = None
+        plan_output: str | Dict[str, Any] | None = None
         error: str | None = None
         tool_calls = None
         tool_calls_all = None
@@ -496,6 +659,7 @@ def run_multi_agent(
         tool_errors = None
         portfolio_snapshot = None
         portfolio_error = None
+        pre_portfolio_snapshot = None
         pre_cash_balance: float | None = None
         cash_netted: float | None = None
         run_started_at: datetime | None = None
@@ -505,7 +669,6 @@ def run_multi_agent(
         tokens_out: int | None = None
         tokens_total: int | None = None
         run_id = run_ids.get(cfg.name) if db_writer is not None else None
-        agent_id = agent_ids.get(cfg.name) if db_writer is not None else None
         expected_wallet = cfg.expected_wallet or ""
         with (
             _temporary_env("MANIFOLD_API_KEY", manifold_key),
@@ -517,17 +680,20 @@ def run_multi_agent(
             try:
                 pre_snapshot = fetch_portfolio_snapshot(None, api_key=manifold_key)
                 pre_cash_balance = pre_snapshot.cash_balance
+                pre_portfolio_snapshot = _snapshot_to_dict(pre_snapshot)
             except Exception:  # noqa: BLE001
                 pre_cash_balance = None
+                pre_portfolio_snapshot = None
             attempts = max(1, int(max_attempts))
             wallet_retry_limit = max(1, int(DEFAULT_WALLET_RETRY_LIMIT))
             attempt = 0
             wallet_retries = 0
             while attempt < attempts:
-                if (attempt > 0 or wallet_retries > 0) and db_writer is not None and session_id is not None and agent_id is not None:
+                if (attempt > 0 or wallet_retries > 0) and db_writer is not None and session_id is not None:
                     run_id = db_writer.create_run_placeholder(
                         session_id=session_id,
-                        agent_id=agent_id,
+                        model_provider=cfg.model_provider,
+                        model=cfg.model,
                         started_at=datetime.now(timezone.utc),
                     )
                 run_started_at = datetime.now(timezone.utc)
@@ -537,6 +703,7 @@ def run_multi_agent(
                 tokens_out = None
                 tokens_total = None
                 output = None
+                plan_output = None
                 tool_calls = None
                 tool_calls_all = None
                 captured_trades = None
@@ -559,6 +726,7 @@ def run_multi_agent(
                         verbose=verbose,
                     )
                     output = result.get("output") if isinstance(result, dict) else result
+                    plan_output = result.get("plan_output") if isinstance(result, dict) else None
                     tool_calls = result.get("tool_calls_unique") if isinstance(result, dict) else None
                     tool_calls_all = result.get("tool_calls") if isinstance(result, dict) else None
                     captured_trades = result.get("captured_trades") if isinstance(result, dict) else None
@@ -636,6 +804,12 @@ def run_multi_agent(
                             cash_balance=None,
                             position_balance=None,
                             bankroll=None,
+                            plan_output_json=_parse_plan_payload(plan_output),
+                            execution_output=output if isinstance(output, str) else None,
+                            metadata={
+                                "tool_calls": tool_calls_all or [],
+                                "tool_errors": tool_errors or [],
+                            },
                         )
                     except Exception as exc:  # noqa: BLE001
                         print(f"Failed to update run {run_id}: {exc}")
@@ -673,6 +847,7 @@ def run_multi_agent(
             "model": cfg.model,
             "instruction": instruction,
             "success": success,
+            "plan_output": plan_output,
             "output": output,
             "error": None if success else error,
             "tool_calls": tool_calls,
@@ -701,12 +876,9 @@ def run_multi_agent(
                     print(f"- {tool_error}")
             if not success and error:
                 print(f"\n--- Agent Error ---\n{error}")
-        trades = _parse_trades_from_output(output)
-        if captured_trades:
-            for entry in captured_trades:
-                trades.extend(_parse_trades_from_output(entry))
-        no_trade_reason = _extract_no_trade_reason(output) if success and not trades else None
-        if success and not trades and not no_trade_reason:
+        summary_trades = _parse_executed_tool_trades(captured_trades)
+        no_trade_reason = _extract_no_trade_reason(output) if success and not summary_trades else None
+        if success and not summary_trades and not no_trade_reason:
             no_trade_reason = "Agent did not provide a reason for no trades."
         if db_writer is not None:
             try:
@@ -718,12 +890,6 @@ def run_multi_agent(
                 else:
                     cash_balance = None
                     position_balance = None
-                agent_id = db_writer.upsert_agent(
-                    agent_name=cfg.name,
-                    model_provider=cfg.model_provider,
-                    model=cfg.model,
-                    last_seen_at=run_finished_at or run_started_at,
-                )
                 if run_id is not None and run_started_at is not None:
                     db_writer.update_run(
                         run_id=run_id,
@@ -742,82 +908,190 @@ def run_multi_agent(
                         cash_balance=float(cash_balance) if cash_balance is not None else None,
                         position_balance=float(position_balance) if position_balance is not None else None,
                         bankroll=float(bankroll) if bankroll is not None else None,
+                        plan_output_json=_parse_plan_payload(plan_output),
+                        execution_output=output if isinstance(output, str) else json.dumps(output),
+                        metadata={
+                            "tool_calls": tool_calls_all or [],
+                            "tool_errors": tool_errors or [],
+                            "captured_trades": captured_trades or [],
+                        },
                     )
-                trade_records: list[TradeRecord] = []
-                log_entries = _load_trade_log_entries(
-                    trade_log_path,
-                    agent_name=cfg.name,
-                    start=run_started_at,
-                    end=run_finished_at,
-                )
-                used_indices: set[int] = set()
-                if log_entries:
+                if run_id is not None:
+                    planned_payloads = _plan_actions_from_output(plan_output)
+                    run_actions: list[RunActionRecord] = [
+                        RunActionRecord(
+                            action_index=int(action.get("action_index") or idx),
+                            action_type=str(action.get("action_type") or "unknown"),
+                            market_id=str(action.get("market_id") or "") or None,
+                            outcome=str(action.get("outcome") or "") or None,
+                            amount=_coerce_float(action.get("amount")),
+                            shares=_coerce_float(action.get("shares")),
+                            belief_prob=_coerce_float(action.get("belief_prob")),
+                            market_prob=_coerce_float(action.get("market_prob")),
+                            edge_at_plan=_coerce_float(action.get("edge_at_plan")),
+                            limit_prob=_coerce_float(action.get("limit_prob")),
+                            answer=str(action.get("answer") or "") or None,
+                            requires_news_catalyst=action.get("requires_news_catalyst"),
+                            catalyst_urls=action.get("catalyst_urls"),
+                            reason=str(action.get("reason") or "") or None,
+                            status="planned",
+                        )
+                        for idx, action in enumerate(planned_payloads)
+                    ]
+
+                    log_entries = _load_trade_log_entries(
+                        trade_log_path,
+                        agent_name=cfg.name,
+                        start=run_started_at,
+                        end=run_finished_at,
+                    )
+                    used_action_indices: set[int] = set()
+                    matched_log_entries: list[tuple[int | None, Dict[str, Any]]] = []
                     for entry in log_entries:
-                        matched = _match_trade_reason(trades, entry, used_indices)
-                        trade_text = None
-                        reason = None
-                        if matched:
-                            trade_text = matched.get("trade")
-                            reason = matched.get("reason") or None
-                        if not trade_text:
-                            outcome = entry.get("outcome")
-                            market = entry.get("market")
-                            action = entry.get("action") or "TRADE"
-                            if market and outcome:
-                                trade_text = f"{action} {market} [{outcome}]"
-                            elif market:
-                                trade_text = f"{action} {market}"
+                        matched_idx = _match_plan_action_for_log(
+                            action=str(entry.get("action") or ""),
+                            market_id=str(entry.get("market_id") or ""),
+                            outcome=str(entry.get("outcome") or ""),
+                            run_actions=run_actions,
+                            used_indices=used_action_indices,
+                        )
+                        if matched_idx is not None:
+                            used_action_indices.add(matched_idx)
+                            run_actions[matched_idx].status = "executed"
+                        matched_log_entries.append((matched_idx, entry))
+
+                    trade_tool_errors = [
+                        str(tool_error)
+                        for tool_error in (tool_errors or [])
+                        if "manifold_place_bet" in str(tool_error) or "manifold_sell_position" in str(tool_error)
+                    ]
+                    error_matches: list[tuple[int | None, str]] = []
+                    used_error_action_indices: set[int] = set()
+                    for tool_error_text in trade_tool_errors:
+                        desired_type = (
+                            "place_bet"
+                            if "manifold_place_bet" in tool_error_text
+                            else "sell_position"
+                            if "manifold_sell_position" in tool_error_text
+                            else "unknown"
+                        )
+                        matched_idx = None
+                        for idx, action in enumerate(run_actions):
+                            if idx in used_error_action_indices:
+                                continue
+                            if action.action_type != desired_type:
+                                continue
+                            if action.status == "executed":
+                                continue
+                            matched_idx = idx
+                            used_error_action_indices.add(idx)
+                            break
+                        if matched_idx is not None:
+                            lowered = tool_error_text.lower()
+                            if " skipped" in lowered:
+                                run_actions[matched_idx].status = "skipped"
+                                run_actions[matched_idx].skip_reason = tool_error_text
                             else:
-                                trade_text = f"{action} {entry.get('market_id', 'unknown market')}"
-                        amount = entry.get("amount")
-                        trade_records.append(
-                            TradeRecord(
-                                agent_name=cfg.name,
-                                trade_text=str(trade_text),
-                                reason=reason,
-                                amount=float(amount) if amount is not None else None,
-                                status="executed" if success else "failed",
-                                market_id=entry.get("market_id"),
-                                market_slug=entry.get("market_slug"),
-                            )
-                        )
-                else:
-                    for trade in trades:
-                        raw_amount = trade.get("amount")
-                        amount = None
-                        if raw_amount:
-                            try:
-                                amount = float(raw_amount)
-                            except ValueError:
-                                amount = None
-                        trade_records.append(
-                            TradeRecord(
-                                agent_name=cfg.name,
-                                trade_text=str(trade.get("trade") or ""),
-                                reason=trade.get("reason") or None,
-                                amount=amount,
-                                status="executed" if success else "failed",
-                            )
-                        )
-                if tool_errors:
-                    for tool_error in tool_errors:
-                        tool_error_text = str(tool_error)
-                        if not any(
-                            tool_name in tool_error_text
-                            for tool_name in ("manifold_place_bet", "manifold_sell_position")
-                        ):
+                                run_actions[matched_idx].status = "failed"
+                                run_actions[matched_idx].failure_reason = tool_error_text
+                        error_matches.append((matched_idx, tool_error_text))
+
+                    for action in run_actions:
+                        if action.status == "executed":
                             continue
-                        trade_records.append(
-                            TradeRecord(
-                                agent_name=cfg.name,
-                                trade_text=tool_error_text,
-                                reason=None,
-                                amount=None,
-                                status="failed",
-                                error=tool_error_text,
+                        if action.status in {"skipped", "failed"}:
+                            continue
+                        if success:
+                            action.status = "skipped"
+                            action.skip_reason = "Not executed by execution phase."
+                        else:
+                            action.status = "failed"
+                            action.failure_reason = error or "Run failed before execution."
+
+                    action_ids = db_writer.insert_run_actions(run_id=run_id, actions=run_actions)
+                    action_id_by_index = {idx: action_ids[idx] for idx in range(min(len(action_ids), len(run_actions)))}
+
+                    executions: list[TradeExecutionRecord] = []
+                    for matched_idx, entry in matched_log_entries:
+                        run_action_id = action_id_by_index.get(matched_idx) if matched_idx is not None else None
+                        reason = run_actions[matched_idx].reason if matched_idx is not None else None
+                        action = str(entry.get("action") or "")
+                        market = str(entry.get("market") or entry.get("market_id") or "unknown market")
+                        outcome = str(entry.get("outcome") or "")
+                        summary = f"{action} {market}" + (f" [{outcome}]" if outcome else "")
+                        executions.append(
+                            TradeExecutionRecord(
+                                run_action_id=run_action_id,
+                                market_id=str(entry.get("market_id") or "") or None,
+                                market_slug=str(entry.get("market_slug") or "") or None,
+                                action=action or None,
+                                outcome=outcome or None,
+                                amount=_coerce_float(entry.get("amount")),
+                                shares=_coerce_float(entry.get("shares")),
+                                prob_before=_coerce_float(entry.get("prob_before")),
+                                prob_after=_coerce_float(entry.get("prob_after")),
+                                bet_id=str(entry.get("bet_id") or "") or None,
+                                status=str(entry.get("status") or "executed"),
+                                error=None,
+                                reason=reason,
+                                summary=summary,
+                                raw_response=entry,
                             )
                         )
-                db_writer.insert_trades(run_id=run_id, agent_id=agent_id, trades=trade_records)
+
+                    for matched_idx, tool_error_text in error_matches:
+                        run_action_id = action_id_by_index.get(matched_idx) if matched_idx is not None else None
+                        planned = run_actions[matched_idx] if matched_idx is not None else None
+                        action_label = "BUY" if "manifold_place_bet" in tool_error_text else "SELL"
+                        status = "skipped" if " skipped" in tool_error_text.lower() else "failed"
+                        executions.append(
+                            TradeExecutionRecord(
+                                run_action_id=run_action_id,
+                                market_id=planned.market_id if planned else None,
+                                market_slug=None,
+                                action=action_label,
+                                outcome=planned.outcome if planned else None,
+                                amount=planned.amount if planned else None,
+                                shares=planned.shares if planned else None,
+                                prob_before=planned.market_prob if planned else None,
+                                prob_after=None,
+                                bet_id=None,
+                                status=status,
+                                error=tool_error_text,
+                                reason=planned.reason if planned else None,
+                                summary=tool_error_text,
+                                raw_response={"tool_error": tool_error_text},
+                            )
+                        )
+
+                    db_writer.insert_trade_executions(run_id=run_id, executions=executions)
+
+                    equity_snapshots: list[EquitySnapshotRecord] = []
+                    if isinstance(pre_portfolio_snapshot, dict):
+                        equity_snapshots.append(
+                            EquitySnapshotRecord(
+                                snapshot_type="pre",
+                                cash_balance=_coerce_float(pre_portfolio_snapshot.get("cash_balance")),
+                                positions_value=_coerce_float(pre_portfolio_snapshot.get("positions_value")),
+                                bankroll=_coerce_float(pre_portfolio_snapshot.get("bankroll")),
+                                gross_exposure=_coerce_float(pre_portfolio_snapshot.get("gross_exposure")),
+                                open_positions=_coerce_int(pre_portfolio_snapshot.get("open_positions")),
+                                snapshot_json=pre_portfolio_snapshot,
+                            )
+                        )
+                    if isinstance(portfolio_snapshot, dict):
+                        equity_snapshots.append(
+                            EquitySnapshotRecord(
+                                snapshot_type="post",
+                                cash_balance=_coerce_float(portfolio_snapshot.get("cash_balance")),
+                                positions_value=_coerce_float(portfolio_snapshot.get("positions_value")),
+                                bankroll=_coerce_float(portfolio_snapshot.get("bankroll")),
+                                gross_exposure=_coerce_float(portfolio_snapshot.get("gross_exposure")),
+                                open_positions=_coerce_int(portfolio_snapshot.get("open_positions")),
+                                snapshot_json=portfolio_snapshot,
+                            )
+                        )
+                    db_writer.insert_equity_snapshots(run_id=run_id, snapshots=equity_snapshots)
             except Exception as exc:  # noqa: BLE001
                 print(f"Failed to write run to DB: {exc}")
         record_summary = {
@@ -825,7 +1099,7 @@ def run_multi_agent(
             "provider": cfg.model_provider,
             "success": success,
             "error": error,
-            "trades": trades,
+            "trades": summary_trades,
             "no_trade_reason": no_trade_reason,
             "tool_calls": tool_calls,
             "tool_errors": tool_errors,
@@ -842,11 +1116,11 @@ def run_multi_agent(
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run one or more Agent-Time agents sequentially.")
+    parser = argparse.ArgumentParser(description="Run the Agent-Time single-agent runner.")
     parser.add_argument(
         "--config",
         default=DEFAULT_CONFIG_PATH,
-        help="Path to the JSON config file describing each agent.",
+        help="Path to the JSON config file (single selected agent in single-agent mode).",
     )
     parser.add_argument(
         "--results",
@@ -857,7 +1131,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--market-limit",
         type=int,
         default=DEFAULT_MARKET_LIMIT,
-        help="Number of markets to fetch once and share with all agents.",
+        help="Number of markets to fetch once and share with the runner.",
     )
     parser.add_argument(
         "--market-cache",
@@ -880,8 +1154,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         dest="agents",
         action="append",
         help=(
-            "Run only the named agent(s) from the config. "
-            "Repeat the flag or separate names with commas (e.g. --agent gpt-runner)."
+            "Select the agent entry from config. Repeat the flag or separate names with commas; "
+            "single-agent mode requires exactly one final selection."
         ),
     )
     parser.add_argument(

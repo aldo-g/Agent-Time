@@ -1,4 +1,4 @@
-"""Postgres persistence for Agent-Time runs and trades."""
+"""Postgres persistence for Agent-Time runs and trade lifecycle records."""
 
 from __future__ import annotations
 
@@ -18,18 +18,63 @@ def _require_database_url() -> str:
     return url
 
 
+def _json_or_none(payload: object | None) -> str | None:
+    if payload is None:
+        return None
+    return json.dumps(payload)
+
+
 @dataclass
-class TradeRecord:
-    agent_name: str
-    trade_text: str
-    reason: str | None
-    amount: float | None
-    status: str
+class RunActionRecord:
+    action_index: int
+    action_type: str
     market_id: str | None = None
-    market_slug: str | None = None
-    decision_confidence: float | None = None
-    edge: float | None = None
+    outcome: str | None = None
+    amount: float | None = None
+    shares: float | None = None
+    belief_prob: float | None = None
+    market_prob: float | None = None
+    edge_at_plan: float | None = None
+    limit_prob: float | None = None
+    answer: str | None = None
+    requires_news_catalyst: bool | None = None
+    catalyst_urls: list[str] | None = None
+    reason: str | None = None
+    status: str = "planned"
+    skip_reason: str | None = None
+    failure_reason: str | None = None
+    created_at: datetime | None = None
+
+
+@dataclass
+class TradeExecutionRecord:
+    run_action_id: int | None
+    market_id: str | None
+    market_slug: str | None
+    action: str | None
+    outcome: str | None
+    amount: float | None
+    shares: float | None
+    prob_before: float | None = None
+    prob_after: float | None = None
+    bet_id: str | None = None
+    status: str = "executed"
     error: str | None = None
+    reason: str | None = None
+    summary: str | None = None
+    raw_response: dict | None = None
+    created_at: datetime | None = None
+
+
+@dataclass
+class EquitySnapshotRecord:
+    snapshot_type: str
+    cash_balance: float | None = None
+    positions_value: float | None = None
+    bankroll: float | None = None
+    gross_exposure: float | None = None
+    open_positions: int | None = None
+    snapshot_json: dict | None = None
     created_at: datetime | None = None
 
 
@@ -61,6 +106,7 @@ class DbWriter:
                 cur.execute("SELECT 1;")
 
     def ensure_schema(self) -> None:
+        """Create or migrate the single-agent run/action/execution schema."""
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -76,21 +122,11 @@ class DbWriter:
                 )
                 cur.execute(
                     """
-                    CREATE TABLE IF NOT EXISTS agents (
-                        id BIGSERIAL PRIMARY KEY,
-                        name TEXT UNIQUE NOT NULL,
-                        model_provider TEXT,
-                        model TEXT,
-                        last_seen_at TIMESTAMPTZ
-                    );
-                    """
-                )
-                cur.execute(
-                    """
                     CREATE TABLE IF NOT EXISTS runs (
                         id BIGSERIAL PRIMARY KEY,
                         session_id BIGINT REFERENCES sessions(id) ON DELETE CASCADE,
-                        agent_id BIGINT REFERENCES agents(id) ON DELETE CASCADE,
+                        model_provider TEXT,
+                        model TEXT,
                         started_at TIMESTAMPTZ NOT NULL,
                         finished_at TIMESTAMPTZ,
                         run_duration_ms INTEGER,
@@ -105,149 +141,118 @@ class DbWriter:
                         current_balance NUMERIC,
                         cash_balance NUMERIC,
                         position_balance NUMERIC,
-                        bankroll NUMERIC
+                        bankroll NUMERIC,
+                        plan_output_json JSONB,
+                        execution_output TEXT,
+                        metadata JSONB
                     );
                     """
                 )
                 cur.execute(
                     """
-                    CREATE TABLE IF NOT EXISTS trades (
+                    CREATE TABLE IF NOT EXISTS run_actions (
                         id BIGSERIAL PRIMARY KEY,
-                        run_id BIGINT REFERENCES runs(id) ON DELETE CASCADE,
-                        agent_id BIGINT REFERENCES agents(id) ON DELETE CASCADE,
+                        run_id BIGINT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                        action_index INTEGER NOT NULL,
+                        action_type TEXT NOT NULL,
                         market_id TEXT,
-                        market_slug TEXT,
-                        trade_text TEXT NOT NULL,
-                        reason TEXT,
+                        outcome TEXT,
                         amount NUMERIC,
+                        shares NUMERIC,
+                        belief_prob NUMERIC,
+                        market_prob NUMERIC,
+                        edge_at_plan NUMERIC,
+                        limit_prob NUMERIC,
+                        answer TEXT,
+                        requires_news_catalyst BOOLEAN,
+                        catalyst_urls JSONB,
+                        reason TEXT,
                         status TEXT NOT NULL,
-                        error TEXT,
-                        decision_confidence NUMERIC,
-                        edge NUMERIC,
+                        skip_reason TEXT,
+                        failure_reason TEXT,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                     );
                     """
                 )
                 cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);"
+                    """
+                    CREATE TABLE IF NOT EXISTS trade_executions (
+                        id BIGSERIAL PRIMARY KEY,
+                        run_id BIGINT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                        run_action_id BIGINT REFERENCES run_actions(id) ON DELETE SET NULL,
+                        market_id TEXT,
+                        market_slug TEXT,
+                        action TEXT,
+                        outcome TEXT,
+                        amount NUMERIC,
+                        shares NUMERIC,
+                        prob_before NUMERIC,
+                        prob_after NUMERIC,
+                        bet_id TEXT,
+                        status TEXT NOT NULL,
+                        error TEXT,
+                        reason TEXT,
+                        summary TEXT,
+                        raw_response JSONB,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    );
+                    """
                 )
                 cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);"
+                    """
+                    CREATE TABLE IF NOT EXISTS equity_snapshots (
+                        id BIGSERIAL PRIMARY KEY,
+                        run_id BIGINT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                        snapshot_type TEXT NOT NULL,
+                        cash_balance NUMERIC,
+                        positions_value NUMERIC,
+                        bankroll NUMERIC,
+                        gross_exposure NUMERIC,
+                        open_positions INTEGER,
+                        snapshot_json JSONB,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    );
+                    """
                 )
+
+                # Legacy-table compatibility: keep old tables if present and migrate runs to single-agent mode.
+                cur.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS model_provider TEXT;")
+                cur.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS model TEXT;")
+                cur.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS plan_output_json JSONB;")
+                cur.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS execution_output TEXT;")
+                cur.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS metadata JSONB;")
+                # Older schemas had runs.agent_id as NOT NULL; make it optional so placeholders can be created
+                # without a separate agents table.
                 cur.execute(
-                    "ALTER TABLE sessions DROP COLUMN IF EXISTS market_cache_path;"
+                    """
+                    DO $$
+                    BEGIN
+                        IF EXISTS (
+                            SELECT 1
+                            FROM information_schema.columns
+                            WHERE table_schema = current_schema()
+                              AND table_name = 'runs'
+                              AND column_name = 'agent_id'
+                        ) THEN
+                            EXECUTE 'ALTER TABLE runs ALTER COLUMN agent_id DROP NOT NULL';
+                        END IF;
+                    EXCEPTION WHEN undefined_table OR undefined_column THEN
+                        NULL;
+                    END
+                    $$;
+                    """
                 )
-                cur.execute(
-                    "ALTER TABLE sessions DROP COLUMN IF EXISTS market_count;"
-                )
-                cur.execute(
-                    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS market_json JSONB;"
-                )
-                cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs(agent_id);"
-                )
-                cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id);"
-                )
-                cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at);"
-                )
-                cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_trades_run ON trades(run_id);"
-                )
-                cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_trades_agent ON trades(agent_id);"
-                )
-                cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at);"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS agent_id BIGINT;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS session_id BIGINT;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS run_duration_ms INTEGER;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS tool_calls_count INTEGER;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS tokens_in INTEGER;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS tokens_out INTEGER;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS tokens_total INTEGER;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS cash_netted NUMERIC;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS current_balance NUMERIC;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS cash_balance NUMERIC;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS position_balance NUMERIC;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS bankroll NUMERIC;"
-                )
-                try:
-                    cur.execute("ALTER TABLE runs ALTER COLUMN success DROP NOT NULL;")
-                except self._errors.UndefinedColumn:
-                    pass
-                cur.execute(
-                    "ALTER TABLE trades ADD COLUMN IF NOT EXISTS agent_id BIGINT;"
-                )
-                cur.execute(
-                    "ALTER TABLE trades ADD COLUMN IF NOT EXISTS market_id TEXT;"
-                )
-                cur.execute(
-                    "ALTER TABLE trades ADD COLUMN IF NOT EXISTS market_slug TEXT;"
-                )
-                cur.execute(
-                    "ALTER TABLE trades ADD COLUMN IF NOT EXISTS decision_confidence NUMERIC;"
-                )
-                cur.execute(
-                    "ALTER TABLE trades ADD COLUMN IF NOT EXISTS edge NUMERIC;"
-                )
-                cur.execute(
-                    "ALTER TABLE agents DROP COLUMN IF EXISTS total_token_cost;"
-                )
-                cur.execute(
-                    "ALTER TABLE agents DROP COLUMN IF EXISTS current_balance;"
-                )
-                cur.execute(
-                    "ALTER TABLE agents DROP COLUMN IF EXISTS cash_balance;"
-                )
-                cur.execute(
-                    "ALTER TABLE agents DROP COLUMN IF EXISTS position_balance;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs DROP COLUMN IF EXISTS model_price;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs DROP COLUMN IF EXISTS total_token_cost;"
-                )
-                cur.execute(
-                    "ALTER TABLE runs DROP COLUMN IF EXISTS positions_value;"
-                )
-                try:
-                    cur.execute("ALTER TABLE runs ALTER COLUMN agent_name DROP NOT NULL;")
-                except self._errors.UndefinedColumn:
-                    pass
-                try:
-                    cur.execute("ALTER TABLE trades ALTER COLUMN agent_name DROP NOT NULL;")
-                except self._errors.UndefinedColumn:
-                    pass
+
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_run_actions_run ON run_actions(run_id);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_run_actions_market ON run_actions(market_id);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_trade_exec_run ON trade_executions(run_id);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_trade_exec_action ON trade_executions(run_action_id);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_trade_exec_bet_id ON trade_executions(bet_id);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_trade_exec_created_at ON trade_executions(created_at);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_equity_snapshots_run ON equity_snapshots(run_id);")
 
     def create_session(
         self,
@@ -260,17 +265,13 @@ class DbWriter:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO sessions (
-                        started_at,
-                        market_json,
-                        notes
-                    )
+                    INSERT INTO sessions (started_at, market_json, notes)
                     VALUES (%s, %s, %s)
                     RETURNING id;
                     """,
                     (
                         started_at,
-                        json.dumps(market_json) if market_json is not None else None,
+                        _json_or_none(market_json),
                         notes,
                     ),
                 )
@@ -294,18 +295,18 @@ class DbWriter:
                 session_id, started_at = row
         return {"id": int(session_id), "started_at": started_at}
 
-    def get_run_id(self, *, session_id: int, agent_id: int) -> Optional[int]:
+    def get_run_id(self, *, session_id: int) -> Optional[int]:
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT id
                     FROM runs
-                    WHERE session_id = %s AND agent_id = %s
-                    ORDER BY started_at DESC
+                    WHERE session_id = %s
+                    ORDER BY started_at DESC, id DESC
                     LIMIT 1;
                     """,
-                    (session_id, agent_id),
+                    (session_id,),
                 )
                 row = cur.fetchone()
                 if not row:
@@ -324,7 +325,8 @@ class DbWriter:
         self,
         *,
         session_id: int,
-        agent_id: int,
+        model_provider: str | None,
+        model: str | None,
         started_at: datetime,
     ) -> int:
         with self.connect() as conn:
@@ -333,14 +335,15 @@ class DbWriter:
                     """
                     INSERT INTO runs (
                         session_id,
-                        agent_id,
+                        model_provider,
+                        model,
                         started_at,
                         success
                     )
-                    VALUES (%s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s)
                     RETURNING id;
                     """,
-                    (session_id, agent_id, started_at, None),
+                    (session_id, model_provider, model, started_at, None),
                 )
                 run_id = cur.fetchone()[0]
         return int(run_id)
@@ -364,6 +367,9 @@ class DbWriter:
         cash_balance: Optional[float],
         position_balance: Optional[float],
         bankroll: Optional[float],
+        plan_output_json: Optional[dict] = None,
+        execution_output: Optional[str] = None,
+        metadata: Optional[dict] = None,
     ) -> None:
         with self.connect() as conn:
             with conn.cursor() as cur:
@@ -385,7 +391,10 @@ class DbWriter:
                         current_balance = %s,
                         cash_balance = %s,
                         position_balance = %s,
-                        bankroll = %s
+                        bankroll = %s,
+                        plan_output_json = %s,
+                        execution_output = %s,
+                        metadata = %s
                     WHERE id = %s;
                     """,
                     (
@@ -404,133 +413,91 @@ class DbWriter:
                         cash_balance,
                         position_balance,
                         bankroll,
+                        _json_or_none(plan_output_json),
+                        execution_output,
+                        _json_or_none(metadata),
                         run_id,
                     ),
                 )
 
-    def upsert_agent(
-        self,
-        *,
-        agent_name: str,
-        model_provider: str,
-        model: str,
-        last_seen_at: datetime,
-    ) -> int:
+    def insert_run_actions(self, *, run_id: int, actions: Iterable[RunActionRecord]) -> list[int]:
+        action_ids: list[int] = []
         with self.connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO agents (
-                        name,
-                        model_provider,
-                        model,
-                        last_seen_at
+                for action in actions:
+                    cur.execute(
+                        """
+                        INSERT INTO run_actions (
+                            run_id,
+                            action_index,
+                            action_type,
+                            market_id,
+                            outcome,
+                            amount,
+                            shares,
+                            belief_prob,
+                            market_prob,
+                            edge_at_plan,
+                            limit_prob,
+                            answer,
+                            requires_news_catalyst,
+                            catalyst_urls,
+                            reason,
+                            status,
+                            skip_reason,
+                            failure_reason,
+                            created_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id;
+                        """,
+                        (
+                            run_id,
+                            action.action_index,
+                            action.action_type,
+                            action.market_id,
+                            action.outcome,
+                            action.amount,
+                            action.shares,
+                            action.belief_prob,
+                            action.market_prob,
+                            action.edge_at_plan,
+                            action.limit_prob,
+                            action.answer,
+                            action.requires_news_catalyst,
+                            _json_or_none(action.catalyst_urls),
+                            action.reason,
+                            action.status,
+                            action.skip_reason,
+                            action.failure_reason,
+                            action.created_at or datetime.now(timezone.utc),
+                        ),
                     )
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (name)
-                    DO UPDATE SET
-                        model_provider = EXCLUDED.model_provider,
-                        model = EXCLUDED.model,
-                        last_seen_at = EXCLUDED.last_seen_at
-                    RETURNING id;
-                    """,
-                    (
-                        agent_name,
-                        model_provider,
-                        model,
-                        last_seen_at,
-                    ),
-                )
-                agent_id = cur.fetchone()[0]
-        return int(agent_id)
+                    action_ids.append(int(cur.fetchone()[0]))
+        return action_ids
 
-    def insert_run(
-        self,
-        *,
-        session_id: int,
-        agent_id: int,
-        started_at: datetime,
-        finished_at: Optional[datetime],
-        run_duration_ms: Optional[int],
-        success: Optional[bool],
-        error: Optional[str],
-        no_trade_reason: Optional[str],
-        tool_calls_count: Optional[int],
-        tokens_in: Optional[int],
-        tokens_out: Optional[int],
-        tokens_total: Optional[int],
-        cash_netted: Optional[float],
-        current_balance: Optional[float],
-        cash_balance: Optional[float],
-        position_balance: Optional[float],
-        bankroll: Optional[float],
-    ) -> int:
-        with self.connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO runs (
-                        session_id,
-                        agent_id,
-                        started_at,
-                        finished_at,
-                        run_duration_ms,
-                        success,
-                        error,
-                        no_trade_reason,
-                        tool_calls_count,
-                        tokens_in,
-                        tokens_out,
-                        tokens_total,
-                        cash_netted,
-                        current_balance,
-                        cash_balance,
-                        position_balance,
-                        bankroll
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id;
-                    """,
-                    (
-                        session_id,
-                        agent_id,
-                        started_at,
-                        finished_at,
-                        run_duration_ms,
-                        success,
-                        error,
-                        no_trade_reason,
-                        tool_calls_count,
-                        tokens_in,
-                        tokens_out,
-                        tokens_total,
-                        cash_netted,
-                        current_balance,
-                        cash_balance,
-                        position_balance,
-                        bankroll,
-                    ),
-                )
-                run_id = cur.fetchone()[0]
-        return int(run_id)
-
-    def insert_trades(self, *, run_id: int, agent_id: int, trades: Iterable[TradeRecord]) -> None:
+    def insert_trade_executions(self, *, run_id: int, executions: Iterable[TradeExecutionRecord]) -> None:
         rows = [
             (
                 run_id,
-                agent_id,
-                trade.market_id,
-                trade.market_slug,
-                trade.trade_text,
-                trade.reason,
-                trade.amount,
-                trade.status,
-                trade.error,
-                trade.decision_confidence,
-                trade.edge,
-                trade.created_at or datetime.now(timezone.utc),
+                execution.run_action_id,
+                execution.market_id,
+                execution.market_slug,
+                execution.action,
+                execution.outcome,
+                execution.amount,
+                execution.shares,
+                execution.prob_before,
+                execution.prob_after,
+                execution.bet_id,
+                execution.status,
+                execution.error,
+                execution.reason,
+                execution.summary,
+                _json_or_none(execution.raw_response),
+                execution.created_at or datetime.now(timezone.utc),
             )
-            for trade in trades
+            for execution in executions
         ]
         if not rows:
             return
@@ -538,21 +505,63 @@ class DbWriter:
             with conn.cursor() as cur:
                 cur.executemany(
                     """
-                    INSERT INTO trades (
+                    INSERT INTO trade_executions (
                         run_id,
-                        agent_id,
+                        run_action_id,
                         market_id,
                         market_slug,
-                        trade_text,
-                        reason,
+                        action,
+                        outcome,
                         amount,
+                        shares,
+                        prob_before,
+                        prob_after,
+                        bet_id,
                         status,
                         error,
-                        decision_confidence,
-                        edge,
+                        reason,
+                        summary,
+                        raw_response,
                         created_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    """,
+                    rows,
+                )
+
+    def insert_equity_snapshots(self, *, run_id: int, snapshots: Iterable[EquitySnapshotRecord]) -> None:
+        rows = [
+            (
+                run_id,
+                snapshot.snapshot_type,
+                snapshot.cash_balance,
+                snapshot.positions_value,
+                snapshot.bankroll,
+                snapshot.gross_exposure,
+                snapshot.open_positions,
+                _json_or_none(snapshot.snapshot_json),
+                snapshot.created_at or datetime.now(timezone.utc),
+            )
+            for snapshot in snapshots
+        ]
+        if not rows:
+            return
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO equity_snapshots (
+                        run_id,
+                        snapshot_type,
+                        cash_balance,
+                        positions_value,
+                        bankroll,
+                        gross_exposure,
+                        open_positions,
+                        snapshot_json,
+                        created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
                     """,
                     rows,
                 )

@@ -50,6 +50,8 @@ def _load_agents(path: Path) -> list[dict]:
         return []
     with path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
+    if isinstance(payload, dict):
+        payload = [payload]
     if isinstance(payload, list):
         return [entry for entry in payload if isinstance(entry, dict)]
     return []
@@ -330,7 +332,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind the server.")
     parser.add_argument("--port", type=int, default=3000, help="Port to bind the server.")
     parser.add_argument("--static-dir", default="web/predict-arena", help="Directory to serve the frontend from.")
-    parser.add_argument("--agents", default="agents.json", help="Path to agents.json.")
+    parser.add_argument("--agents", default="agent.json", help="Path to agent.json.")
     parser.add_argument("--results", default="results/gpt_runs.jsonl", help="Path to run logs.")
     parser.add_argument("--trades", default="results/trades.jsonl", help="Path to trade logs.")
     parser.add_argument("--markets", default="data/shared_markets.json", help="Path to market cache.")

@@ -109,7 +109,7 @@ docker run --rm --name agent-time-bot \
   -v /opt/agent-time/results:/results \
   -v /opt/agent-time/data:/data \
   "${ecr_image_uri}" \
-  python -m agent.multi_runner \
+  python -m agent.single_runner \
     --agent "${agent_name}" \
     --skip-market-fetch \
     --market-cache /data/shared_markets.json \
