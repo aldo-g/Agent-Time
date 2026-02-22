@@ -15,18 +15,14 @@ from typing import Any, Dict, Iterable, List, Optional
 
 PROVIDER_LABELS = {
     "openai": "OpenAI",
-    "anthropic": "Claude",
-    "claude": "Claude",
-    "gemini": "Gemini",
-    "google": "Gemini",
+    "gpt": "OpenAI",
+    "chatgpt": "OpenAI",
 }
 
 PROVIDER_COLORS = {
     "openai": ("#3f7f5f", "rgba(63, 127, 95, 0.16)"),
-    "anthropic": ("#b07a2a", "rgba(176, 122, 42, 0.18)"),
-    "claude": ("#b07a2a", "rgba(176, 122, 42, 0.18)"),
-    "gemini": ("#5b79a6", "rgba(91, 121, 166, 0.18)"),
-    "google": ("#5b79a6", "rgba(91, 121, 166, 0.18)"),
+    "gpt": ("#3f7f5f", "rgba(63, 127, 95, 0.16)"),
+    "chatgpt": ("#3f7f5f", "rgba(63, 127, 95, 0.16)"),
 }
 
 

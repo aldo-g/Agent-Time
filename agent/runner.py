@@ -21,10 +21,7 @@ DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_PROVIDER = os.environ.get("AGENT_LLM_PROVIDER", "openai").lower()
 DEFAULT_MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "8"))
 DEFAULT_TEMPERATURE = float(os.environ.get("AGENT_TEMPERATURE", "0.2"))
-DEFAULT_GEMINI_TIMEOUT = os.environ.get("GEMINI_TIMEOUT", "60")
-DEFAULT_GEMINI_MAX_RETRIES = os.environ.get("GEMINI_MAX_RETRIES", "6")
 DEFAULT_STEP_DELAY_SEC = os.environ.get("AGENT_STEP_DELAY_SEC", "0")
-DEFAULT_ANTHROPIC_STEP_DELAY_SEC = os.environ.get("ANTHROPIC_STEP_DELAY_SEC", "0.6")
 DEFAULT_INSTRUCTION = os.environ.get(
     "AGENT_INSTRUCTION",
     (
@@ -37,25 +34,6 @@ DEFAULT_INSTRUCTION = os.environ.get(
 )
 
 
-def _ensure_provider_env(provider: str) -> None:
-    """Backfill provider-specific API key variables if aliases were supplied."""
-    aliases = {
-        "anthropic": [("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")],
-        "claude": [("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")],
-        "google": [("GOOGLE_API_KEY", "GEMINI_API_KEY")],
-        "gemini": [("GOOGLE_API_KEY", "GEMINI_API_KEY")],
-    }
-    target_aliases = aliases.get(provider.lower())
-    if not target_aliases:
-        return
-    for target, alias in target_aliases:
-        if os.environ.get(target):
-            continue
-        alias_value = os.environ.get(alias)
-        if alias_value:
-            os.environ[target] = alias_value
-
-
 def _coerce_float(value: object, default: float) -> float:
     try:
         return float(value)
@@ -63,23 +41,12 @@ def _coerce_float(value: object, default: float) -> float:
         return float(default)
 
 
-def _coerce_int(value: object, default: int) -> int:
-    try:
-        return int(value)
-    except Exception:
-        return int(default)
-
-
-def _resolve_step_delay(provider: str) -> float:
-    delay = _coerce_float(DEFAULT_STEP_DELAY_SEC, 0.0)
-    if provider.lower() in {"anthropic", "claude"}:
-        delay = max(delay, _coerce_float(DEFAULT_ANTHROPIC_STEP_DELAY_SEC, 0.0))
-    return max(0.0, delay)
+def _resolve_step_delay(_provider: str) -> float:
+    return max(0.0, _coerce_float(DEFAULT_STEP_DELAY_SEC, 0.0))
 
 
 def _build_llm(model: str, temperature: float, provider: str):
     normalized = provider.lower()
-    _ensure_provider_env(normalized)
     if normalized in {"openai", "gpt", "chatgpt"}:
         try:
             from langchain_openai import ChatOpenAI
@@ -89,36 +56,9 @@ def _build_llm(model: str, temperature: float, provider: str):
                 "and ensure you are using an OpenAI Python package version supported by LangChain."
             ) from exc
         return ChatOpenAI(model=model, temperature=temperature)
-    if normalized in {"anthropic", "claude"}:
-        try:
-            from langchain_anthropic import ChatAnthropic
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                "langchain-anthropic is not installed. Install it with `pip install langchain-anthropic`."
-            ) from exc
-        return ChatAnthropic(model=model, temperature=temperature)
-    if normalized in {"google", "gemini"}:
-        try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                "langchain-google-genai is not installed. Install it with `pip install langchain-google-genai`."
-            ) from exc
-        return ChatGoogleGenerativeAI(
-            model=model,
-            temperature=temperature,
-            convert_system_message_to_human=True,
-            timeout=_coerce_float(DEFAULT_GEMINI_TIMEOUT, 60.0),
-            max_retries=_coerce_int(DEFAULT_GEMINI_MAX_RETRIES, 6),
-        )
-    raise ValueError(f"Unsupported LLM provider '{provider}'.")
-
-
-# Quiet noisy schema warnings from the Vertex/Gemini tool serializer.
-_vertex_logger = logging.getLogger("langchain_google_vertexai.functions_utils")
-_vertex_logger.setLevel(logging.ERROR)
-_vertex_logger.propagate = False
-logging.getLogger("langchain_google_vertexai").setLevel(logging.ERROR)
+    raise ValueError(
+        f"Unsupported LLM provider '{provider}'. This project is configured for OpenAI/ChatGPT only."
+    )
 
 
 def _build_prompt() -> ChatPromptTemplate:

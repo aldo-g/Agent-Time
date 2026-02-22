@@ -1,13 +1,13 @@
 # AWS Bot Infra (Terraform)
 
-This stack provisions low-cost AWS infrastructure to run isolated bot hosts in EC2 (GPT, Claude, Gemini) plus a dedicated market-fetcher host.
+This stack provisions low-cost AWS infrastructure to run isolated bot hosts in EC2 (ChatGPT by default) plus a dedicated market-fetcher host.
 
 ## What This Creates
 
 - 1x ECR repository for the bot Docker image
-- 3x EC2 bot instances (`gpt`, `claude`, `gemini`)
+- 1x EC2 bot instance by default (`gpt`)
 - 1x EC2 market-fetcher instance
-- 3x CloudWatch log groups for bots (one per bot)
+- CloudWatch log groups for bots (one per configured bot)
 - 1x CloudWatch log group for market fetcher
 - 1x S3 bucket for shared market cache (`shared/shared_markets.json`)
 - 1x IAM role + instance profile (SSM read, ECR pull, CloudWatch write, S3 cache read/write)
@@ -89,10 +89,6 @@ Default parameter paths:
 
 - `/agent-time/<env>/gpt/OPENAI_API_KEY`
 - `/agent-time/<env>/gpt/MANIFOLD_API_KEY_OPENAI`
-- `/agent-time/<env>/claude/CLAUDE_API_KEY`
-- `/agent-time/<env>/claude/MANIFOLD_API_KEY_CLAUDE`
-- `/agent-time/<env>/gemini/GEMINI_API_KEY`
-- `/agent-time/<env>/gemini/MANIFOLD_API_KEY_GEMINI`
 
 If you changed `project_name` or `environment`, use `terraform output -json ssm_parameter_names` and write exactly those paths.
 
@@ -107,7 +103,7 @@ aws ssm put-parameter \
   --overwrite
 ```
 
-Repeat for all 6 keys.
+Repeat for both keys.
 
 Optional shared DB secret (used by all bots):
 

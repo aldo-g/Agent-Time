@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Orchestrate multiple Agent-Time competitors in a single run."""
+"""Orchestrate one or more Agent-Time agents in a single run."""
 
 from __future__ import annotations
 
 import argparse
 import contextlib
 import json
-import logging
 import re
 import os
 import time
@@ -34,22 +33,14 @@ DEFAULT_MARKET_LIMIT = int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "10"))
 DEFAULT_WALLET_RETRY_LIMIT = int(os.environ.get("AGENT_WALLET_RETRY_LIMIT", "5"))
 PROVIDER_LABELS = {
     "openai": "OpenAI",
-    "anthropic": "Claude",
-    "claude": "Claude",
-    "gemini": "Gemini",
-    "google": "Gemini",
+    "gpt": "OpenAI",
+    "chatgpt": "OpenAI",
 }
-
-# Quiet noisy schema warnings from the Vertex/Gemini tool serializer.
-_vertex_logger = logging.getLogger("langchain_google_vertexai.functions_utils")
-_vertex_logger.setLevel(logging.ERROR)
-_vertex_logger.propagate = False
-logging.getLogger("langchain_google_vertexai").setLevel(logging.ERROR)
 
 
 @dataclass
 class AgentConfig:
-    """Configuration for a single competitor."""
+    """Configuration for a single agent."""
 
     name: str
     model_provider: str
@@ -67,9 +58,15 @@ class AgentConfig:
         missing = [key for key in required if key not in payload]
         if missing:
             raise ValueError(f"Agent entry is missing required fields: {', '.join(missing)}")
+        provider = str(payload["model_provider"])
+        if provider.lower() not in {"openai", "gpt", "chatgpt"}:
+            raise ValueError(
+                f"Agent '{payload['name']}' has unsupported model_provider '{provider}'. "
+                "Only OpenAI/ChatGPT is supported."
+            )
         return cls(
             name=str(payload["name"]),
-            model_provider=str(payload["model_provider"]),
+            model_provider=provider,
             model=str(payload["model"]),
             manifold_key=payload.get("manifold_key"),
             manifold_key_env=payload.get("manifold_key_env"),
@@ -617,13 +614,6 @@ def run_multi_agent(
                     elif attempt < attempts - 1:
                         print(f"Retrying agent '{cfg.name}' after error: {error}")
                         time.sleep(2)
-                    if cfg.model_provider.lower() in {"gemini", "google"}:
-                        lowered = error.lower()
-                        if "resourceexhausted" in lowered or "quota" in lowered or "429" in lowered:
-                            error = (
-                                "Gemini quota hit (429 ResourceExhausted). "
-                                "Check your plan/usage limits and retry later."
-                            )
                     print(f"Agent '{cfg.name}' failed: {error}")
                 attempt += 1
                 if run_finished_at is None:
@@ -855,7 +845,7 @@ def run_multi_agent(
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run multiple Agent-Time competitors sequentially.")
+    parser = argparse.ArgumentParser(description="Run one or more Agent-Time agents sequentially.")
     parser.add_argument(
         "--config",
         default=DEFAULT_CONFIG_PATH,
@@ -894,7 +884,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="append",
         help=(
             "Run only the named agent(s) from the config. "
-            "Repeat the flag or separate names with commas (e.g. --agent gpt-runner --agent claude-runner)."
+            "Repeat the flag or separate names with commas (e.g. --agent gpt-runner)."
         ),
     )
     parser.add_argument(

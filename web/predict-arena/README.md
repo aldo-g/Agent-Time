@@ -1,13 +1,13 @@
 # Predict Arena (Mock)
 
-This folder contains a static mock-up for the Predict Arena dashboard that will eventually host the live competition between GPT, Claude, and Gemini agents.
+This folder contains a static mock-up for the Predict Arena dashboard for a single ChatGPT trading agent.
 
 ## Structure
 
 - `index.html` – landing page layout.
 - `styles.css` – gradient UI skin with reusable utility classes.
 - `app.js` – vanilla JS loader that renders leaderboard cards and trade history per agent.
-- `data/mock_runs.json` – mocked API payload with three agents, their trades, and run history.
+- `data/mock_runs.json` – mocked API payload with one agent, trade examples, and run history.
 
 ## Preview locally
 

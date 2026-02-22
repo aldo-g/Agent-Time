@@ -172,17 +172,5 @@ variable "bots" {
       llm_env_var      = "OPENAI_API_KEY"
       manifold_env_var = "MANIFOLD_API_KEY_OPENAI"
     }
-    claude = {
-      agent_name       = "claude-runner"
-      expected_wallet  = "AgentClaude"
-      llm_env_var      = "CLAUDE_API_KEY"
-      manifold_env_var = "MANIFOLD_API_KEY_CLAUDE"
-    }
-    gemini = {
-      agent_name       = "gemini-runner"
-      expected_wallet  = "AgentGemini"
-      llm_env_var      = "GEMINI_API_KEY"
-      manifold_env_var = "MANIFOLD_API_KEY_GEMINI"
-    }
   }
 }
