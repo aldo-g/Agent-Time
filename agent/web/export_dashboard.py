@@ -15,14 +15,10 @@ from typing import Any, Dict, Iterable, List, Optional
 
 PROVIDER_LABELS = {
     "openai": "OpenAI",
-    "gpt": "OpenAI",
-    "chatgpt": "OpenAI",
 }
 
 PROVIDER_COLORS = {
     "openai": ("#3f7f5f", "rgba(63, 127, 95, 0.16)"),
-    "gpt": ("#3f7f5f", "rgba(63, 127, 95, 0.16)"),
-    "chatgpt": ("#3f7f5f", "rgba(63, 127, 95, 0.16)"),
 }
 
 
@@ -304,7 +300,7 @@ def _latest_timestamp(*collections: Iterable[Dict[str, Any]]) -> str:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agents", default="agents.json", help="Path to agents.json.")
-    parser.add_argument("--results", default="results/multi_agent_runs.jsonl", help="JSONL run log path.")
+    parser.add_argument("--results", default="results/gpt_runs.jsonl", help="JSONL run log path.")
     parser.add_argument("--trades", default="results/trades.jsonl", help="JSONL trade log path.")
     parser.add_argument("--markets", default="data/shared_markets.json", help="Shared market cache path.")
     parser.add_argument(

@@ -18,7 +18,6 @@ from langchain.agents import AgentExecutor, create_tool_calling_agent, create_re
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
 
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-DEFAULT_PROVIDER = os.environ.get("AGENT_LLM_PROVIDER", "openai").lower()
 DEFAULT_MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "8"))
 DEFAULT_TEMPERATURE = float(os.environ.get("AGENT_TEMPERATURE", "0.2"))
 DEFAULT_STEP_DELAY_SEC = os.environ.get("AGENT_STEP_DELAY_SEC", "0")
@@ -41,24 +40,19 @@ def _coerce_float(value: object, default: float) -> float:
         return float(default)
 
 
-def _resolve_step_delay(_provider: str) -> float:
+def _resolve_step_delay() -> float:
     return max(0.0, _coerce_float(DEFAULT_STEP_DELAY_SEC, 0.0))
 
 
-def _build_llm(model: str, temperature: float, provider: str):
-    normalized = provider.lower()
-    if normalized in {"openai", "gpt", "chatgpt"}:
-        try:
-            from langchain_openai import ChatOpenAI
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                "langchain-openai is not installed. Install it with `pip install langchain-openai` "
-                "and ensure you are using an OpenAI Python package version supported by LangChain."
-            ) from exc
-        return ChatOpenAI(model=model, temperature=temperature)
-    raise ValueError(
-        f"Unsupported LLM provider '{provider}'. This project is configured for OpenAI/ChatGPT only."
-    )
+def _build_llm(model: str, temperature: float):
+    try:
+        from langchain_openai import ChatOpenAI
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise RuntimeError(
+            "langchain-openai is not installed. Install it with `pip install langchain-openai` "
+            "and ensure you are using an OpenAI Python package version supported by LangChain."
+        ) from exc
+    return ChatOpenAI(model=model, temperature=temperature)
 
 
 def _build_prompt() -> ChatPromptTemplate:
@@ -97,12 +91,10 @@ def _build_prompt() -> ChatPromptTemplate:
     )
 
 
-def _build_agent_executor(
-    model: str, temperature: float, provider: str, max_steps: int, verbose: bool
-) -> AgentExecutor:
+def _build_agent_executor(model: str, temperature: float, max_steps: int, verbose: bool) -> AgentExecutor:
     tools = build_agent_tools()
     prompt = _build_prompt()
-    llm = _build_llm(model, temperature, provider)
+    llm = _build_llm(model, temperature)
     agent = None
     tool_agent_error: Exception | None = None
     try:
@@ -158,7 +150,6 @@ def run_daily_session(
     instruction: str,
     *,
     model: str,
-    provider: str,
     temperature: float,
     max_steps: int,
     verbose: bool = False,
@@ -166,7 +157,7 @@ def run_daily_session(
     """Execute an autonomous session and return the agent's final output."""
     reset_inspected_markets()
     reset_portfolio_tool_state()
-    executor = _build_agent_executor(model, temperature, provider, max_steps, verbose)
+    executor = _build_agent_executor(model, temperature, max_steps, verbose)
     inputs = {
         "input": instruction,
         "chat_history": [],
@@ -174,7 +165,7 @@ def run_daily_session(
     tracker = ToolCallTracker()
     token_tracker = TokenUsageTracker()
     callbacks = [tracker, token_tracker]
-    step_delay = _resolve_step_delay(provider)
+    step_delay = _resolve_step_delay()
     if step_delay > 0:
         callbacks.append(StepDelay(step_delay))
     if verbose:
@@ -197,8 +188,7 @@ def run_daily_session(
             raise RuntimeError(f"Expected wallet '{expected_wallet}' but saw {seen}.")
     if token_tracker.usage.total_tokens == 0:
         logging.warning(
-            "Token usage metadata missing for %s:%s. Tokens in/out will be 0 for this run.",
-            provider,
+            "Token usage metadata missing for model %s. Tokens in/out will be 0 for this run.",
             model,
         )
     finished_at = datetime.now(timezone.utc)
@@ -223,7 +213,6 @@ def main() -> None:
         result = run_daily_session(
             DEFAULT_INSTRUCTION,
             model=DEFAULT_MODEL,
-            provider=DEFAULT_PROVIDER,
             temperature=DEFAULT_TEMPERATURE,
             max_steps=DEFAULT_MAX_STEPS,
         )

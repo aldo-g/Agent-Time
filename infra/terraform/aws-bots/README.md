@@ -1,75 +1,77 @@
 # AWS Bot Infra (Terraform)
 
-This stack provisions low-cost AWS infrastructure to run isolated bot hosts in EC2 (ChatGPT by default) plus a dedicated market-fetcher host.
+Terraform stack for running Agent-Time in AWS with:
+- one ChatGPT bot EC2 instance (`gpt`)
+- one market-fetcher EC2 instance
+- shared S3 market cache
+- ECR image hosting
+- CloudWatch logs
 
-## What This Creates
+## What To Do (Quick Path)
 
-- 1x ECR repository for the bot Docker image
-- 1x EC2 bot instance by default (`gpt`)
-- 1x EC2 market-fetcher instance
-- CloudWatch log groups for bots (one per configured bot)
-- 1x CloudWatch log group for market fetcher
-- 1x S3 bucket for shared market cache (`shared/shared_markets.json`)
-- 1x IAM role + instance profile (SSM read, ECR pull, CloudWatch write, S3 cache read/write)
-- 1x security group (no inbound by default)
-- systemd service/timer on each host
+1. Copy `terraform.tfvars.example` to `terraform.tfvars` and set region/environment.
+2. Run `terraform init && terraform apply`.
+3. Build and push the Docker image to ECR.
+4. Create SSM secrets for `OPENAI_API_KEY` and `MANIFOLD_API_KEY_OPENAI`.
+5. Start fetcher + bot services once via SSM.
+6. Watch CloudWatch logs to confirm successful runs.
 
 ## Prerequisites
 
-- AWS credentials configured locally (`aws sts get-caller-identity` must work)
-- Terraform `>= 1.5` installed as the HashiCorp CLI (`terraform version`)
-- Docker + `buildx` installed locally
-- `jq` (only needed for the optional one-cycle helper command)
-- Default VPC/subnets in your chosen region
+- AWS credentials configured locally (`aws sts get-caller-identity` works)
+- Terraform >= 1.5
+- Docker with Buildx
+- `jq`
+- Default VPC/subnets available in the target region
 
-## Setup From Zero
-
-### 1) Configure Terraform
+## 1) Configure Terraform
 
 ```bash
 cd infra/terraform/aws-bots
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` as needed.
+Recommended minimal settings in `terraform.tfvars`:
 
-To wire Supabase/Postgres into bot runtime, set:
+```hcl
+aws_region   = "us-east-1"
+environment  = "dev"
+```
 
-```bash
+Optional DB wiring (if you want run/trade writes to Postgres):
+
+```hcl
 database_url_param_name = "/agent-time/dev/DATABASE_URL"
 require_database_url    = true
 ```
 
-`require_database_url = true` makes bot startup fail fast if the DB secret is missing.
-
-### 2) Create AWS Infrastructure
+## 2) Create Infrastructure
 
 ```bash
+cd infra/terraform/aws-bots
 terraform init
 terraform plan
 terraform apply
 ```
 
 Useful outputs:
-
 - `ecr_repository_url`
 - `ssm_parameter_names`
 - `bot_instance_ids`
-- `bot_public_ips`
-- `cloudwatch_log_groups`
 - `market_fetcher_instance_id`
+- `cloudwatch_log_groups`
 - `market_fetcher_log_group`
 - `shared_market_cache_s3_uri`
-- `database_url_ssm_parameter_name`
 
-### 3) Build and Push Docker Image to ECR (amd64)
+## 3) Build And Push Image
 
 Run from repo root:
 
 ```bash
 AWS_REGION=us-east-1
+TF_DIR=infra/terraform/aws-bots
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ECR_REPO=$(terraform -chdir=infra/terraform/aws-bots output -raw ecr_repository_url)
+ECR_REPO=$(terraform -chdir="${TF_DIR}" output -raw ecr_repository_url)
 
 aws ecr get-login-password --region "${AWS_REGION}" \
   | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
@@ -81,44 +83,52 @@ docker buildx build \
   .
 ```
 
-### 4) Write Secrets to SSM Parameter Store
+## 4) Create Required SSM Secrets
 
-Terraform outputs the required names in `ssm_parameter_names`.
+Get the exact parameter names Terraform expects:
 
-Default parameter paths:
+```bash
+AWS_REGION=us-east-1
+TF_DIR=infra/terraform/aws-bots
+terraform -chdir="${TF_DIR}" output -json ssm_parameter_names | jq
+```
 
+Default names:
 - `/agent-time/<env>/gpt/OPENAI_API_KEY`
 - `/agent-time/<env>/gpt/MANIFOLD_API_KEY_OPENAI`
 
-If you changed `project_name` or `environment`, use `terraform output -json ssm_parameter_names` and write exactly those paths.
-
-Example:
+Set them:
 
 ```bash
 aws ssm put-parameter \
-  --region us-east-1 \
+  --region "${AWS_REGION}" \
   --name "/agent-time/dev/gpt/OPENAI_API_KEY" \
   --type SecureString \
   --value "YOUR_OPENAI_KEY" \
   --overwrite
+
+aws ssm put-parameter \
+  --region "${AWS_REGION}" \
+  --name "/agent-time/dev/gpt/MANIFOLD_API_KEY_OPENAI" \
+  --type SecureString \
+  --value "YOUR_MANIFOLD_KEY" \
+  --overwrite
 ```
 
-Repeat for both keys.
-
-Optional shared DB secret (used by all bots):
+Optional DB secret:
 
 ```bash
 aws ssm put-parameter \
-  --region us-east-1 \
+  --region "${AWS_REGION}" \
   --name "/agent-time/dev/DATABASE_URL" \
   --type SecureString \
   --value "postgresql://..." \
   --overwrite
 ```
 
-If you newly enabled `database_url_param_name` in `terraform.tfvars`, run `terraform apply` again so instances pick up updated bootstrap config.
+If you changed DB-related tfvars after initial apply, run `terraform apply` again.
 
-### 5) (Optional) Run One Cycle Manually
+## 5) Run Once Manually (Recommended After First Setup)
 
 ```bash
 AWS_REGION=us-east-1
@@ -140,25 +150,74 @@ aws ssm send-command \
   --parameters commands='["sudo systemctl start agent-time-bot.service"]'
 ```
 
-## Tear Everything Down
+## 6) Verify It Is Working
 
-### 1) Destroy Terraform-managed resources
+Get log group names from Terraform outputs:
+
+```bash
+AWS_REGION=us-east-1
+TF_DIR=infra/terraform/aws-bots
+terraform -chdir="${TF_DIR}" output -json cloudwatch_log_groups | jq
+terraform -chdir="${TF_DIR}" output -raw market_fetcher_log_group
+```
+
+Tail bot logs:
+
+```bash
+BOT_LOG_GROUP=$(terraform -chdir="${TF_DIR}" output -json cloudwatch_log_groups | jq -r '.gpt')
+aws logs tail "${BOT_LOG_GROUP}" --region "${AWS_REGION}" --follow
+```
+
+Tail market fetcher logs:
+
+```bash
+FETCHER_LOG_GROUP=$(terraform -chdir="${TF_DIR}" output -raw market_fetcher_log_group)
+aws logs tail "${FETCHER_LOG_GROUP}" --region "${AWS_REGION}" --follow
+```
+
+## Updating The Deployment
+
+When app code changes:
+
+1. Build/push image again with the same tag (`latest`) or update `image_tag`.
+2. Restart services via SSM to pull/run the new image:
+
+```bash
+AWS_REGION=us-east-1
+TF_DIR=infra/terraform/aws-bots
+FETCHER_ID=$(terraform -chdir="${TF_DIR}" output -raw market_fetcher_instance_id)
+BOT_IDS=$(terraform -chdir="${TF_DIR}" output -json bot_instance_ids | jq -r '.[]')
+
+aws ssm send-command \
+  --region "${AWS_REGION}" \
+  --instance-ids "${FETCHER_ID}" \
+  --document-name AWS-RunShellScript \
+  --parameters commands='["sudo systemctl start agent-time-market-fetcher.service"]'
+
+aws ssm send-command \
+  --region "${AWS_REGION}" \
+  --instance-ids ${BOT_IDS} \
+  --document-name AWS-RunShellScript \
+  --parameters commands='["sudo systemctl start agent-time-bot.service"]'
+```
+
+## Tear Down
+
+### 1) Destroy Terraform resources
 
 ```bash
 cd infra/terraform/aws-bots
 terraform destroy -auto-approve
 ```
 
-### 2) If destroy fails with `BucketNotEmpty`, empty bucket and retry
+### 2) If destroy fails on non-empty S3 bucket
 
 ```bash
-aws s3 rm s3://$(terraform output -raw shared_market_cache_bucket) --recursive
+aws s3 rm s3://$(terraform -chdir=infra/terraform/aws-bots output -raw shared_market_cache_bucket) --recursive
 terraform destroy -auto-approve
 ```
 
-Alternative: set `shared_market_cache_force_destroy = true` in `terraform.tfvars`.
-
-### 3) Delete SSM secrets (they are created manually, not by Terraform)
+### 3) Delete SSM parameters (manual secrets)
 
 ```bash
 AWS_REGION=us-east-1
@@ -174,30 +233,8 @@ for p in $(aws ssm get-parameters-by-path \
 done
 ```
 
-### 4) Quick cleanup checks
-
-`RepositoryNotFound` / empty responses are expected after full teardown.
-
-```bash
-AWS_REGION=us-east-1
-PROJECT_NAME=agent-time
-ENVIRONMENT=dev
-
-aws ecr describe-repositories \
-  --region "${AWS_REGION}" \
-  --repository-names "${PROJECT_NAME}-${ENVIRONMENT}-bots"
-aws logs describe-log-groups \
-  --region "${AWS_REGION}" \
-  --log-group-name-prefix "/${PROJECT_NAME}/${ENVIRONMENT}"
-aws ssm get-parameters-by-path \
-  --region "${AWS_REGION}" \
-  --path "/${PROJECT_NAME}/${ENVIRONMENT}" \
-  --recursive
-```
-
 ## Notes
 
-- `DATABASE_URL` is intentionally omitted for cloud-only bot testing.
-- If `database_url_param_name` is not set, logs will show DB writes being skipped.
-- Each instance runs exactly one bot agent.
-- Wallet verification is enabled via `MANIFOLD_VERIFY_BEFORE_EACH_REQUEST=1` in `common_env`.
+- Timers are enabled by default (`enable_timers = true`), so services continue running on schedule.
+- If `database_url_param_name` is unset, DB writes are skipped by design.
+- Wallet verification is enabled by default via `MANIFOLD_VERIFY_BEFORE_EACH_REQUEST=1`.

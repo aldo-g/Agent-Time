@@ -12,12 +12,12 @@
       "model": "gpt-5-mini",
       "provider": "OpenAI",
       "wallet": "AgentChatGPT",
-      "cash": 1425.805755589584,
-      "bankroll": 2665.966650535485,
-      "totalAssets": 2665.966650535485,
-      "positionsValue": 1240.160894945901,
-      "dailyPnl": 175.21692363906322,
-      "openPositions": 22,
+      "cash": 1259.791946693401,
+      "bankroll": 2361.3029257970093,
+      "totalAssets": 2361.3029257970093,
+      "positionsValue": 1101.510979103608,
+      "dailyPnl": -21.354025623087637,
+      "openPositions": 31,
       "winRate": 0.0,
       "color": "#3f7f5f",
       "colorMuted": "rgba(63, 127, 95, 0.16)",
@@ -25,43 +25,23 @@
       "trades": [],
       "history": [
         {
-          "date": "2026-01-10",
+          "date": "2026-02-05",
           "pnl": 0.0,
           "trades": 0
         },
         {
-          "date": "2026-01-17",
-          "pnl": -325.6716848823685,
+          "date": "2026-02-12",
+          "pnl": -18.593043248278263,
           "trades": 0
         },
         {
-          "date": "2026-01-18",
-          "pnl": 28.40520873127207,
+          "date": "2026-02-13",
+          "pnl": -160.76650982741148,
           "trades": 0
         },
         {
-          "date": "2026-01-19",
-          "pnl": -48.570354295135076,
-          "trades": 0
-        },
-        {
-          "date": "2026-01-28",
-          "pnl": 170.23221406097628,
-          "trades": 0
-        },
-        {
-          "date": "2026-01-29",
-          "pnl": 143.8039004061893,
-          "trades": 0
-        },
-        {
-          "date": "2026-01-30",
-          "pnl": 71.08480306936644,
-          "trades": 0
-        },
-        {
-          "date": "2026-02-04",
-          "pnl": 175.21692363906322,
+          "date": "2026-02-17",
+          "pnl": -21.354025623087637,
           "trades": 0
         }
       ],
@@ -71,46 +51,46 @@
           "market_id": "0r7CYWde6DojE7zo3Fwe",
           "question": "Will Trump successfully appeal the hush money case?",
           "outcome": "YES",
-          "shares": 909.439187248151,
+          "shares": 1818.878374496302,
           "avg_price": 0.5497893724075573,
-          "mark_price": 0.5527825133540191,
-          "pnl": 2.7220796696693332
+          "mark_price": 0.3188203278122741,
+          "pnl": -420.10460039243264
         },
         {
           "market_id": "t6PsNSn8hh",
           "question": "What will be the balance of power in Congress after the 2026 midterms?",
           "outcome": "Democratic House, Republican Senate",
-          "shares": 471.38346244441686,
-          "avg_price": 0.6364245331058352,
-          "mark_price": 0.5251859390452475,
-          "pnl": -52.43603362572881
-        },
-        {
-          "market_id": "OPOqAPAhIl",
-          "question": "Will Elon Musk's wealth reach $1 trillion by 2026?",
-          "outcome": "NO",
-          "shares": 108.62122234068093,
-          "avg_price": 0.5523782434689904,
-          "mark_price": 0.6777262920382916,
-          "pnl": 13.615458253616533
-        },
-        {
-          "market_id": "QLLPInsLNA",
-          "question": "Claude Sonnet 5 released this week?",
-          "outcome": "NO",
-          "shares": 149.59100554472116,
-          "avg_price": 0.2673957558767914,
-          "mark_price": 0.3776821413756889,
-          "pnl": 16.497851304672835
+          "shares": 527.2701936600042,
+          "avg_price": 0.6258650763270557,
+          "mark_price": 0.5255115478178921,
+          "pnl": -52.913424411491434
         },
         {
           "market_id": "cnlR6p5sZl",
           "question": "US - Iran nuclear deal by end of June?",
           "outcome": "YES",
-          "shares": 155.87205206396516,
-          "avg_price": 0.3207759142061049,
-          "mark_price": 0.3300000000000001,
-          "pnl": 1.4377771811085172
+          "shares": 458.39333421828184,
+          "avg_price": 0.2974997307927938,
+          "mark_price": 0.22999999999999998,
+          "pnl": -30.941426656945183
+        },
+        {
+          "market_id": "ylQnEcgzdU",
+          "question": "Will OpenAI release a model named GPT 5.3 by the end of February?",
+          "outcome": "YES",
+          "shares": 215.37232178969208,
+          "avg_price": 0.5107434376243266,
+          "mark_price": 0.4554392546968743,
+          "pnl": -11.910990281767255
+        },
+        {
+          "market_id": "nIlPl8ttAR",
+          "question": "Before December 31, 2026, will an ICE agent kill another American citizen?",
+          "outcome": "NO",
+          "shares": 216.4790764165046,
+          "avg_price": 0.46193840834575867,
+          "mark_price": 0.29000000000000004,
+          "pnl": -37.22106783921365
         }
       ]
     }

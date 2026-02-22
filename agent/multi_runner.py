@@ -26,15 +26,13 @@ from agent.db import DbWriter, TradeRecord
 from agent.tools.manifold.config import DEFAULT_TRADE_LOG_PATH, TRADE_LOG_ENV
 
 DEFAULT_CONFIG_PATH = os.environ.get("AGENT_CONFIG_PATH", "agents.json")
-DEFAULT_RESULTS_PATH = os.environ.get("AGENT_RESULTS_PATH", "results/multi_agent_runs.jsonl")
+DEFAULT_RESULTS_PATH = os.environ.get("AGENT_RESULTS_PATH", "results/gpt_runs.jsonl")
 MARKET_CACHE_ENV = "PREDICT_ARENA_MARKET_CACHE"
 DEFAULT_MARKET_CACHE_PATH = Path(os.environ.get(MARKET_CACHE_ENV, "data/shared_markets.json"))
 DEFAULT_MARKET_LIMIT = int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "10"))
 DEFAULT_WALLET_RETRY_LIMIT = int(os.environ.get("AGENT_WALLET_RETRY_LIMIT", "5"))
 PROVIDER_LABELS = {
     "openai": "OpenAI",
-    "gpt": "OpenAI",
-    "chatgpt": "OpenAI",
 }
 
 
@@ -58,15 +56,15 @@ class AgentConfig:
         missing = [key for key in required if key not in payload]
         if missing:
             raise ValueError(f"Agent entry is missing required fields: {', '.join(missing)}")
-        provider = str(payload["model_provider"])
-        if provider.lower() not in {"openai", "gpt", "chatgpt"}:
+        provider = str(payload["model_provider"]).lower()
+        if provider != "openai":
             raise ValueError(
                 f"Agent '{payload['name']}' has unsupported model_provider '{provider}'. "
-                "Only OpenAI/ChatGPT is supported."
+                "Only 'openai' is supported."
             )
         return cls(
             name=str(payload["name"]),
-            model_provider=provider,
+            model_provider="openai",
             model=str(payload["model"]),
             manifold_key=payload.get("manifold_key"),
             manifold_key_env=payload.get("manifold_key_env"),
@@ -556,7 +554,6 @@ def run_multi_agent(
                     result = run_daily_session(
                         instruction,
                         model=cfg.model,
-                        provider=cfg.model_provider,
                         temperature=cfg.resolve_temperature(),
                         max_steps=cfg.resolve_max_steps(),
                         verbose=verbose,

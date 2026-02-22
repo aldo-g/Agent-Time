@@ -31,7 +31,7 @@ AGENT_NAME=${agent_name}
 AGENT_EXPECTED_WALLET=${expected_wallet}
 ${llm_env_var}=$${LLM_KEY}
 ${manifold_env_var}=$${MANIFOLD_KEY}
-AGENT_RESULTS_PATH=/results/${agent_name}_runs.jsonl
+AGENT_RESULTS_PATH=/results/${bot_key}_runs.jsonl
 AGENT_TRADE_LOG_PATH=/results/trades.jsonl
 PREDICT_ARENA_MARKET_CACHE=/data/shared_markets.json
 AGENT_MAX_ATTEMPTS=${max_attempts}
@@ -115,7 +115,7 @@ docker run --rm --name agent-time-bot \
     --market-cache /data/shared_markets.json \
     --market-limit "${market_limit}" \
     --max-attempts "${max_attempts}" \
-    --results "/results/${agent_name}_runs.jsonl"
+    --results "/results/${bot_key}_runs.jsonl"
 SCRIPT
 
 chmod +x /usr/local/bin/agent-time-run

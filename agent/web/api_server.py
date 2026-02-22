@@ -331,7 +331,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=3000, help="Port to bind the server.")
     parser.add_argument("--static-dir", default="web/predict-arena", help="Directory to serve the frontend from.")
     parser.add_argument("--agents", default="agents.json", help="Path to agents.json.")
-    parser.add_argument("--results", default="results/multi_agent_runs.jsonl", help="Path to run logs.")
+    parser.add_argument("--results", default="results/gpt_runs.jsonl", help="Path to run logs.")
     parser.add_argument("--trades", default="results/trades.jsonl", help="Path to trade logs.")
     parser.add_argument("--markets", default="data/shared_markets.json", help="Path to market cache.")
     return parser.parse_args()
