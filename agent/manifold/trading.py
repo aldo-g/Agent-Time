@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 import utils.env_loader as env_loader  # noqa: F401
-from agent.manifold.constants import MANIFOLD_API_ROOT, RESOLUTION_CUTOFF_MS
+from agent.manifold.constants import MANIFOLD_API_ROOT
 from agent.manifold.portfolio import verify_wallet_identity
 
 USER_AGENT = "AgentTimeBot/1.0 (+https://manifold.markets)"

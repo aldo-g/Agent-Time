@@ -83,7 +83,7 @@ def build_agent_tools() -> List[StructuredTool]:
     event_timer_tool = StructuredTool.from_function(
         name="event_timer",
         func=_run_event_timer,
-        description="Report how long until a market closes and flag cutoff violations.",
+        description="Report how long until a market closes.",
         args_schema=EventTimerInput,
     )
     risk_gate_tool = StructuredTool.from_function(

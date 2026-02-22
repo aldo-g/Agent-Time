@@ -10,7 +10,6 @@ from agent.manifold.history import fetch_market_history
 from agent.manifold.trading import MarketDetails, fetch_market_details
 
 from .cache import _load_cached_markets
-from .config import CUTOFF_ISO, RESOLUTION_CUTOFF_MS
 from .errors import _is_not_found_error
 from .limits import _enforce_market_limit
 from .summaries import _summarize_events
@@ -86,8 +85,6 @@ def _run_event_timer(market_id: str) -> str:
         f"Market {details.market_id} closes at {close_dt.isoformat()} ({status}).",
         f"Time until close: {delta.days}d {abs(delta.seconds) // 3600}h.",
     ]
-    if details.close_time > RESOLUTION_CUTOFF_MS:
-        lines.append(f"Warning: closes after cutoff {CUTOFF_ISO}.")
     if hours < 24 and delta.total_seconds() > 0:
         lines.append("Note: closes within 24 hours; liquidity may be thin.")
     return "\n".join(lines)

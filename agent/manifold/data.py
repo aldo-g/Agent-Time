@@ -9,7 +9,7 @@ import urllib.request
 from dataclasses import dataclass, field, asdict
 from typing import Iterable, List, Sequence
 
-from agent.manifold.constants import MANIFOLD_API_ROOT, MAX_API_LIMIT, RESOLUTION_CUTOFF_MS
+from agent.manifold.constants import MANIFOLD_API_ROOT, MAX_API_LIMIT
 
 USER_AGENT = "AgentTimeBot/1.0 (+https://manifold.markets)"
 
@@ -142,10 +142,8 @@ def load_open_markets(limit: int, offset: int) -> List[EventSummary]:
         if close_time is None:
             continue
         try:
-            close_ms = int(close_time)
+            int(close_time)
         except (TypeError, ValueError):
-            continue
-        if close_ms > RESOLUTION_CUTOFF_MS:
             continue
         filtered_records.append(record)
     markets = (

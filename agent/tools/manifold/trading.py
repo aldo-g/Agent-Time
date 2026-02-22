@@ -11,7 +11,7 @@ from typing import Dict, Optional
 from agent.manifold.portfolio import PortfolioPosition, PortfolioSnapshot, fetch_portfolio_snapshot
 from agent.manifold.trading import MarketDetails, fetch_market_details, lookup_answer_id, place_bet, sell_position
 
-from .config import CUTOFF_ISO, DEFAULT_TRADE_LOG_PATH, RESOLUTION_CUTOFF_MS, TRADE_LOG_ENV
+from .config import DEFAULT_TRADE_LOG_PATH, TRADE_LOG_ENV
 from .errors import _extract_sell_cap_shares, _is_not_found_error
 from .limits import _enforce_market_limit
 
@@ -64,8 +64,6 @@ def _run_place_bet(
         raise
     if details.close_time is None:
         raise RuntimeError("Cannot trade markets without a close date.")
-    if details.close_time > RESOLUTION_CUTOFF_MS:
-        raise RuntimeError(f"This market resolves after {CUTOFF_ISO}; choose an earlier market.")
     snapshot = fetch_portfolio_snapshot(None, api_key=os.environ.get("MANIFOLD_API_KEY"))
     if snapshot.cash_balance is not None and amount > snapshot.cash_balance + 1e-6:
         raise RuntimeError(
