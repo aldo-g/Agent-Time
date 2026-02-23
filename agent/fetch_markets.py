@@ -6,12 +6,55 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from agent.db import DbWriter
 from agent.manifold.data import events_to_dicts, load_open_markets
 from agent.tools.manifold.config import MARKET_CACHE_ENV
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return float(raw)
+    except Exception:
+        return default
+
+
+def _connect_db_with_retry() -> DbWriter:
+    attempts = max(1, _env_int("AGENT_DB_CONNECT_RETRIES", 30))
+    delay_seconds = max(0.1, _env_float("AGENT_DB_CONNECT_RETRY_DELAY_SECONDS", 2.0))
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            db_writer = DbWriter.from_env()
+            db_writer.ping()
+            db_writer.ensure_schema()
+            return db_writer
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if attempt < attempts:
+                print(
+                    f"Database not ready yet (attempt {attempt}/{attempts}): {exc}. "
+                    f"Retrying in {delay_seconds:.1f}s..."
+                )
+                time.sleep(delay_seconds)
+    assert last_error is not None
+    raise RuntimeError(last_error)
 
 
 def _load_agents_config(path: Path) -> list[dict]:
@@ -31,7 +74,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--market-limit",
         type=int,
-        default=int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "10")),
+        default=int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "25")),
         help="Number of markets to fetch and cache.",
     )
     parser.add_argument(
@@ -59,9 +102,7 @@ def main() -> None:
 
     if os.environ.get("DATABASE_URL"):
         try:
-            db_writer = DbWriter.from_env()
-            db_writer.ping()
-            db_writer.ensure_schema()
+            db_writer = _connect_db_with_retry()
             agents_path = Path(os.environ.get("AGENT_CONFIG_PATH", "agent.json"))
             agents = _load_agents_config(agents_path)
             if len(agents) != 1:
@@ -87,7 +128,8 @@ def main() -> None:
             )
             print(f"Session {session_id} created with 1 run.")
         except Exception as exc:  # noqa: BLE001
-            print(f"Database not configured or unavailable. Skipping DB writes. ({exc})")
+            print(f"Database configured but unavailable. Failing market-fetcher. ({exc})")
+            raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":

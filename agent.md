@@ -38,7 +38,7 @@
 - **Connector API Surface:** methods listed above, all returning typed responses + normalized error handling.
 
 ## Database Schema Plan (for trade history + analytics)
-Goal: capture agent → runs → trades with token costs, tool usage, and portfolio snapshots.
+Goal: capture agent → runs → trades with tool usage and portfolio snapshots.
 
 ### agents
 - `id` (PK)
@@ -57,9 +57,6 @@ Goal: capture agent → runs → trades with token costs, tool usage, and portfo
 - `error`
 - `no_trade_reason`
 - `tool_calls_count`
-- `tokens_in`
-- `tokens_out`
-- `tokens_total`
 - `cash_netted`
 - `current_balance`
 - `cash_balance`
@@ -84,7 +81,6 @@ Goal: capture agent → runs → trades with token costs, tool usage, and portfo
 Notes:
 - `agents` is static config metadata; `runs` and `trades` hold history.
 - We store failed trade attempts to preserve auditability.
-- Token counts (`tokens_in`, `tokens_out`) are tracked; costs are not stored.
 
 ## Open Questions / Inputs Needed
 - Manifold API key for authenticated endpoints (Steps 2+) — fill in `MANIFOLD_API_KEY` (and optional overrides like `MANIFOLD_API_ROOT`).

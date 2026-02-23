@@ -55,13 +55,9 @@ class FetchMarketsInput(BaseModel):
 class PortfolioInput(BaseModel):
     """Inputs for the portfolio snapshot tool."""
 
-    wallet: str | None = Field(
-        default=None,
-        description="Deprecated. Manifold accounts are inferred from MANIFOLD_API_KEY.",
-    )
     required: bool = Field(
         default=False,
-        description="If true, raise an error when the wallet cannot be resolved.",
+        description="If true, raise an error when the account snapshot cannot be resolved.",
     )
 
 
@@ -98,15 +94,13 @@ class PlaceBetInput(BaseModel):
     requires_news_catalyst: bool = Field(
         default=True,
         description=(
-            "Set true for news-driven trades; then at least one trusted source URL is required. "
-            "Set false only for non-news theses."
+            "Optional planning flag for news-driven trades."
         ),
     )
     catalyst_urls: List[str] | None = Field(
         default=None,
         description=(
-            "Supporting source URLs for a news-driven thesis. Must include at least one trusted source domain "
-            "(for example AP, Reuters, FT)."
+            "Optional supporting source URLs for the thesis."
         ),
     )
 

@@ -39,22 +39,6 @@ def reset_portfolio_tool_state() -> None:
     _portfolio_analytics_call_count = 0
 
 
-def _resolve_expected_wallet() -> str | None:
-    expected = (os.environ.get("AGENT_EXPECTED_WALLET") or "").strip()
-    return expected or None
-
-
-def _assert_expected_wallet(snapshot: PortfolioSnapshot, *, tool_name: str) -> None:
-    expected_wallet = _resolve_expected_wallet()
-    if not expected_wallet:
-        return
-    observed_wallet = (snapshot.wallet or "").strip()
-    if observed_wallet.lower() != expected_wallet.lower():
-        raise RuntimeError(
-            f"Expected wallet '{expected_wallet}' but saw '{observed_wallet}' in {tool_name}."
-        )
-
-
 def _enforce_tool_call_limit(tool_name: str, call_count: int, max_calls: int) -> None:
     if call_count <= max_calls:
         return
@@ -84,7 +68,7 @@ def _estimate_bankroll(snapshot: PortfolioSnapshot) -> Tuple[float, float]:
     return bankroll, gross_exposure
 
 
-def _run_portfolio(wallet: str | None = None, required: bool = False) -> str:
+def _run_portfolio(required: bool = False) -> str:
     global _portfolio_call_count
     _portfolio_call_count += 1
     _enforce_tool_call_limit(
@@ -93,12 +77,11 @@ def _run_portfolio(wallet: str | None = None, required: bool = False) -> str:
         max(1, int(DEFAULT_MANIFOLD_PORTFOLIO_MAX_CALLS)),
     )
     try:
-        snapshot = fetch_portfolio_snapshot(wallet, api_key=os.environ.get("MANIFOLD_API_KEY"))
+        snapshot = fetch_portfolio_snapshot(None, api_key=os.environ.get("MANIFOLD_API_KEY"))
     except Exception as exc:  # noqa: BLE001
         if required:
             raise
         return f"Unable to fetch Manifold portfolio: {exc}"
-    _assert_expected_wallet(snapshot, tool_name="manifold_portfolio")
     return _summarize_portfolio(snapshot)
 
 
@@ -120,7 +103,6 @@ def _run_portfolio_analytics(max_positions: int = 5) -> str:
         snapshot = fetch_portfolio_snapshot(None, api_key=os.environ.get("MANIFOLD_API_KEY"))
     except Exception as exc:  # noqa: BLE001
         return f"Unable to fetch portfolio analytics: {exc}"
-    _assert_expected_wallet(snapshot, tool_name="portfolio_analytics")
     bankroll, gross_exposure = _estimate_bankroll(snapshot)
     cash = snapshot.cash_balance or 0.0
     lines = [

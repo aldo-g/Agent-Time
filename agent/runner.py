@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 import utils.env_loader as env_loader  # noqa: F401
-from agent.callbacks import ConsoleLogger, StepDelay, TokenUsageTracker, ToolCallTracker
+from agent.callbacks import ConsoleLogger, StepDelay, ToolCallTracker
 from agent.tools import build_agent_tools
 from agent.tools.manifold import reset_inspected_markets, reset_portfolio_tool_state
 from langchain.agents import AgentExecutor, create_tool_calling_agent, create_react_agent
@@ -21,7 +21,6 @@ DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "8"))
 DEFAULT_TEMPERATURE = float(os.environ.get("AGENT_TEMPERATURE", "0.2"))
 DEFAULT_STEP_DELAY_SEC = os.environ.get("AGENT_STEP_DELAY_SEC", "0")
-DEFAULT_WARN_MISSING_TOKENS = os.environ.get("AGENT_WARN_MISSING_TOKENS", "0")
 DEFAULT_INSTRUCTION = os.environ.get(
     "AGENT_INSTRUCTION",
     (
@@ -45,11 +44,6 @@ def _resolve_step_delay() -> float:
     return max(0.0, _coerce_float(DEFAULT_STEP_DELAY_SEC, 0.0))
 
 
-def _warn_missing_tokens_enabled() -> bool:
-    raw = (DEFAULT_WARN_MISSING_TOKENS or "0").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
-
-
 def _build_llm(model: str, temperature: float):
     try:
         from langchain_openai import ChatOpenAI
@@ -70,10 +64,10 @@ def _build_plan_prompt() -> ChatPromptTemplate:
         Call `risk_gate` for each proposed BUY action and include the same belief_prob and market_prob you intend to execute.
 
         Output MUST be valid JSON (no markdown fences) with this schema:
-        {
+        {{
           "summary": "<short planning summary>",
           "actions": [
-            {
+            {{
               "action": "place_bet" | "sell_position",
               "market_id": "<id-or-slug>",
               "outcome": "<YES/NO or answer label>",
@@ -86,14 +80,14 @@ def _build_plan_prompt() -> ChatPromptTemplate:
               "requires_news_catalyst": <true|false>,
               "catalyst_urls": ["<url>", "..."],
               "reason": "<concise rationale>"
-            }
+            }}
           ],
           "no_trade_reason": "<string, required when actions is empty>"
-        }
+        }}
 
         Rules:
         - Include only actionable trades; no placeholders.
-        - For news-driven actions, include at least one trusted source URL in catalyst_urls.
+        - Include catalyst_urls when relevant to the thesis.
         - If no trade qualifies, return actions=[] with no_trade_reason.
         - Make exactly one tool call at a time.
         """
@@ -195,16 +189,15 @@ def _build_agent_executor(
     )
 
 
-def _phase_callbacks(*, verbose: bool) -> tuple[ToolCallTracker, TokenUsageTracker, list]:
+def _phase_callbacks(*, verbose: bool) -> tuple[ToolCallTracker, list]:
     tracker = ToolCallTracker()
-    token_tracker = TokenUsageTracker()
-    callbacks = [tracker, token_tracker]
+    callbacks = [tracker]
     step_delay = _resolve_step_delay()
     if step_delay > 0:
         callbacks.append(StepDelay(step_delay))
     if verbose:
         callbacks.append(ConsoleLogger())
-    return tracker, token_tracker, callbacks
+    return tracker, callbacks
 
 
 def run_daily_session(
@@ -243,8 +236,8 @@ def run_daily_session(
             "Do not add new trades."
         ),
     )
-    plan_tracker, plan_token_tracker, plan_callbacks = _phase_callbacks(verbose=verbose)
-    execute_tracker, execute_token_tracker, execute_callbacks = _phase_callbacks(verbose=verbose)
+    plan_tracker, plan_callbacks = _phase_callbacks(verbose=verbose)
+    execute_tracker, execute_callbacks = _phase_callbacks(verbose=verbose)
     plan_inputs = {
         "input": instruction,
         "chat_history": [],
@@ -272,24 +265,6 @@ def run_daily_session(
     except Exception:  # noqa: BLE001
         logging.exception("Execution phase failed.")
         raise
-    if plan_tracker.wallet_mismatch_error:
-        raise RuntimeError(plan_tracker.wallet_mismatch_error)
-    if execute_tracker.wallet_mismatch_error:
-        raise RuntimeError(execute_tracker.wallet_mismatch_error)
-    expected_wallet = os.environ.get("AGENT_EXPECTED_WALLET") or None
-    wallets_seen = set(plan_tracker.wallets_seen).union(execute_tracker.wallets_seen)
-    if expected_wallet and wallets_seen:
-        expected_normalized = expected_wallet.strip().lower()
-        seen_normalized = {wallet.strip().lower() for wallet in wallets_seen}
-        if expected_normalized not in seen_normalized:
-            seen = ", ".join(sorted(wallets_seen))
-            raise RuntimeError(f"Expected wallet '{expected_wallet}' but saw {seen}.")
-    total_tokens = plan_token_tracker.usage.total_tokens + execute_token_tracker.usage.total_tokens
-    if total_tokens == 0 and _warn_missing_tokens_enabled():
-        logging.warning(
-            "Token usage metadata missing for model %s. Tokens in/out will be 0 for this run.",
-            model,
-        )
     finished_at = datetime.now(timezone.utc)
     duration_ms = int((time.perf_counter() - start_time) * 1000)
     result = execute_result if isinstance(execute_result, dict) else {"output": execute_result}
@@ -307,13 +282,6 @@ def run_daily_session(
         result["run_started_at"] = started_at.isoformat()
         result["run_finished_at"] = finished_at.isoformat()
         result["run_duration_ms"] = duration_ms
-        result["tokens_in"] = (
-            plan_token_tracker.usage.prompt_tokens + execute_token_tracker.usage.prompt_tokens
-        )
-        result["tokens_out"] = (
-            plan_token_tracker.usage.completion_tokens + execute_token_tracker.usage.completion_tokens
-        )
-        result["tokens_total"] = total_tokens
     return result
 
 

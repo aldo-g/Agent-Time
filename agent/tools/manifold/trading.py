@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, Optional
-import urllib.parse
 
 from agent.manifold.portfolio import PortfolioSnapshot, fetch_portfolio_snapshot
 from agent.manifold.trading import MarketDetails, fetch_market_details, lookup_answer_id, place_bet, sell_position
@@ -85,29 +84,6 @@ def _estimate_position_exposure(
             value = fallback_price * position.shares
         exposure += abs(value)
     return exposure
-
-
-def _normalize_domain(url: str) -> str | None:
-    raw = (url or "").strip()
-    if not raw:
-        return None
-    parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
-    host = (parsed.netloc or parsed.path).strip().lower()
-    if not host:
-        return None
-    if host.startswith("www."):
-        host = host[4:]
-    return host or None
-
-
-def _is_trusted_source(url: str) -> bool:
-    domain = _normalize_domain(url)
-    if not domain:
-        return False
-    for trusted in config.TRUSTED_CATALYST_DOMAINS:
-        if domain == trusted or domain.endswith(f".{trusted}"):
-            return True
-    return False
 
 
 def _run_place_bet(
@@ -202,29 +178,6 @@ def _run_place_bet(
             "Execution guard blocks trades when belief_prob <= market_prob."
         )
 
-    if requires_news_catalyst and config.REQUIRE_TRUSTED_CATALYST_FOR_NEWS_TRADES:
-        urls = [url for url in (catalyst_urls or []) if str(url).strip()]
-        if not urls:
-            return (
-                "Bet skipped: news-driven trade requires catalyst_urls with at least one trusted source "
-                f"({', '.join(config.TRUSTED_CATALYST_DOMAINS[:3])}, ...)."
-            )
-        trusted = [url for url in urls if _is_trusted_source(url)]
-        if not trusted:
-            provided_domains = sorted(
-                {
-                    domain
-                    for domain in (_normalize_domain(url) for url in urls)
-                    if domain
-                }
-            )
-            provided_preview = ", ".join(provided_domains) if provided_domains else "unknown"
-            return (
-                "Bet skipped: catalyst sources are not trusted. "
-                f"Provided domains: {provided_preview}. "
-                "Add at least one trusted source URL."
-            )
-
     bankroll, gross_exposure = _estimate_bankroll(snapshot)
     if bankroll <= 0:
         return "Bet skipped: bankroll unavailable or non-positive; execution guard cannot size safely."
@@ -291,7 +244,7 @@ def _run_place_bet(
                 "edge": edge,
                 "limit_prob": limit_prob,
                 "requires_news_catalyst": requires_news_catalyst,
-                "trusted_catalyst_urls": [url for url in (catalyst_urls or []) if _is_trusted_source(url)],
+                "catalyst_urls": [url for url in (catalyst_urls or []) if str(url).strip()],
                 "bet_id": receipt.bet_id,
                 "status": "OPEN",
             }

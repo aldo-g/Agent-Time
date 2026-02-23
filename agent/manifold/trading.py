@@ -13,7 +13,6 @@ from typing import Dict, List, Optional
 
 import utils.env_loader as env_loader  # noqa: F401
 from agent.manifold.constants import MANIFOLD_API_ROOT
-from agent.manifold.portfolio import verify_wallet_identity
 
 USER_AGENT = "AgentTimeBot/1.0 (+https://manifold.markets)"
 MAX_API_RETRIES = int(os.environ.get("MANIFOLD_API_RETRIES", "2"))
@@ -246,7 +245,6 @@ def _fetch_market_payload(identifier: str) -> Dict[str, object]:
 
 
 def _api_request(path: str, *, method: str = "GET", body: object | None = None) -> object:
-    verify_wallet_identity(api_key=os.environ.get("MANIFOLD_API_KEY"))
     roots = [MANIFOLD_API_ROOT]
     if MANIFOLD_API_ROOT.startswith("https://api.manifold.markets") and ALT_MANIFOLD_API_ROOT not in roots:
         roots.append(ALT_MANIFOLD_API_ROOT)

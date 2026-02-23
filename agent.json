@@ -2,7 +2,6 @@
   "name": "gpt-runner",
   "model_provider": "openai",
   "model": "gpt-5-mini",
-  "expected_wallet": "AgentChatGPT",
   "manifold_key_env": "MANIFOLD_API_KEY_OPENAI",
   "instruction_override": null,
   "temperature": 1.0,

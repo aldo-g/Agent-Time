@@ -24,7 +24,6 @@ market_cache_max_age_seconds = 7200
 # bots = {
 #   gpt = {
 #     agent_name       = "gpt-runner"
-#     expected_wallet  = "AgentChatGPT"
 #     llm_env_var      = "OPENAI_API_KEY"
 #     manifold_env_var = "MANIFOLD_API_KEY_OPENAI"
 #     schedule         = "hourly"

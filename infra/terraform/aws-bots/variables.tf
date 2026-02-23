@@ -37,7 +37,7 @@ variable "image_tag" {
 variable "market_limit" {
   description = "Market limit passed to single_runner."
   type        = number
-  default     = 10
+  default     = 25
 }
 
 variable "enable_shared_market_cache" {
@@ -150,7 +150,6 @@ variable "common_env" {
     AGENT_SKIP_SCHEMA_INIT              = "1"
     AGENT_VERBOSE                       = "1"
     AGENT_LLM_LOG                       = "1"
-    MANIFOLD_VERIFY_BEFORE_EACH_REQUEST = "1"
   }
 }
 
@@ -158,7 +157,6 @@ variable "bots" {
   description = "Bot definitions. SSM parameter names are derived from bot key and env var names."
   type = map(object({
     agent_name       = string
-    expected_wallet  = string
     llm_env_var      = string
     manifold_env_var = string
     instance_type    = optional(string)
@@ -168,7 +166,6 @@ variable "bots" {
   default = {
     gpt = {
       agent_name       = "gpt-runner"
-      expected_wallet  = "AgentChatGPT"
       llm_env_var      = "OPENAI_API_KEY"
       manifold_env_var = "MANIFOLD_API_KEY_OPENAI"
     }

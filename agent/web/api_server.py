@@ -8,7 +8,6 @@ import json
 import mimetypes
 import os
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -63,13 +62,6 @@ def _resolve_manifold_key(agent: dict) -> Optional[str]:
     env_key = agent.get("manifold_key_env")
     if env_key:
         return os.environ.get(str(env_key))
-    return None
-
-
-def _resolve_expected_wallet(agent: dict) -> Optional[str]:
-    expected = agent.get("expected_wallet") or agent.get("wallet")
-    if expected:
-        return str(expected)
     return None
 
 
@@ -131,39 +123,6 @@ def _snapshot_to_dict(snapshot: PortfolioSnapshot) -> Dict[str, Any]:
     }
 
 
-def _retry_on_wallet_mismatch(
-    *,
-    name: str,
-    key: str,
-    source_label: str,
-    expected_wallet: str,
-    debug: bool,
-    max_attempts: int = 3,
-    delay_seconds: float = 0.6,
-) -> tuple[PortfolioSnapshot, Optional[dict], str]:
-    """Retry fetching when Manifold briefly returns a stale wallet mapping."""
-
-    snapshot: PortfolioSnapshot
-    me_overview: Optional[dict]
-    live_wallet = ""
-    for attempt in range(max_attempts):
-        snapshot, me_overview = _fetch_live_snapshot(name, key, source_label, debug)
-        live_wallet = str(snapshot.wallet or "")
-        if live_wallet.lower() == expected_wallet.lower():
-            break
-        if attempt < max_attempts - 1:
-            logger.warning(
-                "Wallet mismatch for %s: expected %s, got %s. Retrying (%d/%d)...",
-                name,
-                expected_wallet,
-                live_wallet or "unknown",
-                attempt + 1,
-                max_attempts,
-            )
-            time.sleep(delay_seconds)
-    return snapshot, me_overview, live_wallet
-
-
 def _hydrate_live_positions(
     payload: Dict[str, Any],
     agents: Iterable[dict],
@@ -216,30 +175,6 @@ def _hydrate_live_positions(
                 logger.warning("Live Manifold fetch failed for %s: %s", name, exc)
                 agent_entry["liveHydration"] = {"status": "error", "reason": str(exc)}
                 continue
-            expected_wallet = _resolve_expected_wallet(config)
-            if expected_wallet:
-                live_wallet = str(snapshot.wallet or "")
-                if live_wallet.lower() != expected_wallet.lower():
-                    snapshot, me_overview, live_wallet = _retry_on_wallet_mismatch(
-                        name=name,
-                        key=_resolve_manifold_key(config) or "",
-                        source_label=config.get("manifold_key_env") or "manifold_key",
-                        expected_wallet=expected_wallet,
-                        debug=debug,
-                    )
-                if live_wallet.lower() != expected_wallet.lower():
-                    logger.warning(
-                        "Wallet mismatch for %s: expected %s, got %s.",
-                        name,
-                        expected_wallet,
-                        live_wallet or "unknown",
-                    )
-                    agent_entry["liveHydration"] = {
-                        "status": "mismatch",
-                        "expected": expected_wallet,
-                        "found": live_wallet,
-                    }
-                    continue
             live = _snapshot_to_dict(snapshot)
             agent_entry["wallet"] = live.get("wallet", agent_entry.get("wallet", ""))
             agent_entry["cash"] = float(live.get("cash_balance") or 0.0)

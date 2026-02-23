@@ -22,18 +22,62 @@ from agent.runner import (
     DEFAULT_TEMPERATURE,
     run_daily_session,
 )
-from agent.db import DbWriter, EquitySnapshotRecord, RunActionRecord, TradeExecutionRecord
+from agent.db import DbWriter, EquitySnapshotRecord, OpenPositionRecord, RunActionRecord, TradeExecutionRecord
 from agent.tools.manifold.config import DEFAULT_TRADE_LOG_PATH, TRADE_LOG_ENV
 
 DEFAULT_CONFIG_PATH = os.environ.get("AGENT_CONFIG_PATH", "agent.json")
 DEFAULT_RESULTS_PATH = os.environ.get("AGENT_RESULTS_PATH", "results/gpt_runs.jsonl")
 MARKET_CACHE_ENV = "PREDICT_ARENA_MARKET_CACHE"
 DEFAULT_MARKET_CACHE_PATH = Path(os.environ.get(MARKET_CACHE_ENV, "data/shared_markets.json"))
-DEFAULT_MARKET_LIMIT = int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "10"))
-DEFAULT_WALLET_RETRY_LIMIT = int(os.environ.get("AGENT_WALLET_RETRY_LIMIT", "5"))
+DEFAULT_MARKET_LIMIT = int(os.environ.get("AGENT_MARKET_CACHE_LIMIT", "25"))
 PROVIDER_LABELS = {
     "openai": "OpenAI",
 }
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return float(raw)
+    except Exception:
+        return default
+
+
+def _init_db_writer_with_session_retry() -> tuple[DbWriter, int, datetime]:
+    attempts = max(1, _env_int("AGENT_DB_CONNECT_RETRIES", 30))
+    delay_seconds = max(0.1, _env_float("AGENT_DB_CONNECT_RETRY_DELAY_SECONDS", 2.0))
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            db_writer = DbWriter.from_env()
+            db_writer.ping()
+            db_writer.ensure_schema()
+            latest_session = db_writer.get_latest_session()
+            if not latest_session:
+                raise RuntimeError("No session found. Run market-fetcher first.")
+            return db_writer, latest_session["id"], latest_session["started_at"]
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+            if attempt < attempts:
+                print(
+                    f"Database/session not ready yet (attempt {attempt}/{attempts}): {exc}. "
+                    f"Retrying in {delay_seconds:.1f}s..."
+                )
+                time.sleep(delay_seconds)
+    assert last_error is not None
+    raise RuntimeError(last_error)
 
 
 @dataclass
@@ -45,7 +89,6 @@ class AgentConfig:
     model: str
     manifold_key: str | None = None
     manifold_key_env: str | None = None
-    expected_wallet: str | None = None
     instruction_override: str | None = None
     temperature: float | None = None
     max_steps: int | None = None
@@ -68,7 +111,6 @@ class AgentConfig:
             model=str(payload["model"]),
             manifold_key=payload.get("manifold_key"),
             manifold_key_env=payload.get("manifold_key_env"),
-            expected_wallet=payload.get("expected_wallet"),
             instruction_override=payload.get("instruction_override"),
             temperature=payload.get("temperature"),
             max_steps=payload.get("max_steps"),
@@ -622,14 +664,7 @@ def run_multi_agent(
     session_started_at = datetime.now(timezone.utc)
     run_ids: Dict[str, int] = {}
     try:
-        db_writer = DbWriter.from_env()
-        db_writer.ping()
-        db_writer.ensure_schema()
-        latest_session = db_writer.get_latest_session()
-        if not latest_session:
-            raise RuntimeError("No session found. Run market-fetcher first.")
-        session_id = latest_session["id"]
-        session_started_at = latest_session["started_at"]
+        db_writer, session_id, session_started_at = _init_db_writer_with_session_retry()
         for cfg in configs:
             run_id = db_writer.get_run_id(session_id=session_id)
             if run_id is None:
@@ -660,22 +695,18 @@ def run_multi_agent(
         portfolio_snapshot = None
         portfolio_error = None
         pre_portfolio_snapshot = None
+        post_open_positions: list[OpenPositionRecord] = []
         pre_cash_balance: float | None = None
         cash_netted: float | None = None
         run_started_at: datetime | None = None
         run_finished_at: datetime | None = None
         run_duration_ms: int | None = None
-        tokens_in: int | None = None
-        tokens_out: int | None = None
-        tokens_total: int | None = None
         run_id = run_ids.get(cfg.name) if db_writer is not None else None
-        expected_wallet = cfg.expected_wallet or ""
         with (
             _temporary_env("MANIFOLD_API_KEY", manifold_key),
             _temporary_env("AGENT_NAME", cfg.name),
             _temporary_env("AGENT_PROVIDER", cfg.model_provider),
             _temporary_env("AGENT_MODEL", cfg.model),
-            _temporary_env("AGENT_EXPECTED_WALLET", expected_wallet),
         ):
             try:
                 pre_snapshot = fetch_portfolio_snapshot(None, api_key=manifold_key)
@@ -685,11 +716,9 @@ def run_multi_agent(
                 pre_cash_balance = None
                 pre_portfolio_snapshot = None
             attempts = max(1, int(max_attempts))
-            wallet_retry_limit = max(1, int(DEFAULT_WALLET_RETRY_LIMIT))
             attempt = 0
-            wallet_retries = 0
             while attempt < attempts:
-                if (attempt > 0 or wallet_retries > 0) and db_writer is not None and session_id is not None:
+                if attempt > 0 and db_writer is not None and session_id is not None:
                     run_id = db_writer.create_run_placeholder(
                         session_id=session_id,
                         model_provider=cfg.model_provider,
@@ -699,9 +728,6 @@ def run_multi_agent(
                 run_started_at = datetime.now(timezone.utc)
                 run_finished_at = None
                 run_duration_ms = None
-                tokens_in = None
-                tokens_out = None
-                tokens_total = None
                 output = None
                 plan_output = None
                 tool_calls = None
@@ -709,15 +735,6 @@ def run_multi_agent(
                 captured_trades = None
                 tool_errors = None
                 try:
-                    if expected_wallet:
-                        preflight_snapshot = fetch_portfolio_snapshot(None, api_key=manifold_key)
-                        observed_wallet = (preflight_snapshot.wallet or "").strip()
-                        if observed_wallet.lower() != expected_wallet.strip().lower():
-                            raise RuntimeError(
-                                f"Expected wallet '{expected_wallet}' but saw '{observed_wallet}' in preflight."
-                            )
-                        if pre_cash_balance is None:
-                            pre_cash_balance = preflight_snapshot.cash_balance
                     result = run_daily_session(
                         instruction,
                         model=cfg.model,
@@ -747,9 +764,6 @@ def run_multi_agent(
                                 run_finished_at = None
                         if isinstance(duration_raw, int):
                             run_duration_ms = duration_raw
-                        tokens_in = result.get("tokens_in")
-                        tokens_out = result.get("tokens_out")
-                        tokens_total = result.get("tokens_total")
                     declared_trade = _has_declared_trade_lines(output)
                     trade_tool_called = any(
                         tool in (tool_calls_all or [])
@@ -766,13 +780,6 @@ def run_multi_agent(
                     error = msg or f"{exc.__class__.__name__}"
                     run_finished_at = datetime.now(timezone.utc)
                     run_duration_ms = int((run_finished_at - run_started_at).total_seconds() * 1000)
-                    lowered_error = error.lower()
-                    if "wallet mismatch" in lowered_error or "expected wallet" in lowered_error:
-                        wallet_retries += 1
-                        if wallet_retries < wallet_retry_limit:
-                            print(f"Retrying agent '{cfg.name}' after wallet mismatch: {error}")
-                            time.sleep(2)
-                            continue
                     if attempt == 0:
                         print(f"Retrying agent '{cfg.name}' after error: {error}")
                         time.sleep(2)
@@ -796,9 +803,6 @@ def run_multi_agent(
                             error=None if success else error,
                             no_trade_reason=None,
                             tool_calls_count=len(tool_calls_all or []),
-                            tokens_in=tokens_in,
-                            tokens_out=tokens_out,
-                            tokens_total=tokens_total,
                             cash_netted=None,
                             current_balance=None,
                             cash_balance=None,
@@ -820,6 +824,20 @@ def run_multi_agent(
                     try:
                         snapshot = fetch_portfolio_snapshot(None, api_key=manifold_key)
                         portfolio_snapshot = _snapshot_to_dict(snapshot)
+                        post_open_positions = [
+                            OpenPositionRecord(
+                                market_id=position.market_id,
+                                market_slug=position.slug,
+                                question=position.question,
+                                outcome=position.outcome,
+                                shares=position.shares,
+                                avg_price=position.avg_price,
+                                mark_price=position.mark_price,
+                                position_value=position.estimated_value(),
+                                pnl=position.pnl,
+                            )
+                            for position in snapshot.positions
+                        ]
                         if tool_calls and any(
                             call in tool_calls
                             for call in ("manifold_place_bet", "manifold_sell_position")
@@ -827,6 +845,20 @@ def run_multi_agent(
                             time.sleep(2)
                             snapshot = fetch_portfolio_snapshot(None, api_key=manifold_key)
                             portfolio_snapshot = _snapshot_to_dict(snapshot)
+                            post_open_positions = [
+                                OpenPositionRecord(
+                                    market_id=position.market_id,
+                                    market_slug=position.slug,
+                                    question=position.question,
+                                    outcome=position.outcome,
+                                    shares=position.shares,
+                                    avg_price=position.avg_price,
+                                    mark_price=position.mark_price,
+                                    position_value=position.estimated_value(),
+                                    pnl=position.pnl,
+                                )
+                                for position in snapshot.positions
+                            ]
                         break
                     except Exception as exc:  # noqa: BLE001
                         msg = str(exc).strip()
@@ -858,9 +890,6 @@ def run_multi_agent(
             "run_started_at": run_started_at.isoformat(),
             "run_finished_at": run_finished_at.isoformat() if run_finished_at else None,
             "run_duration_ms": run_duration_ms,
-            "tokens_in": tokens_in,
-            "tokens_out": tokens_out,
-            "tokens_total": tokens_total,
             "cash_netted": cash_netted,
         }
         _persist_result(record, results_path)
@@ -900,9 +929,6 @@ def run_multi_agent(
                         error=None if success else error,
                         no_trade_reason=no_trade_reason,
                         tool_calls_count=len(tool_calls_all or []),
-                        tokens_in=int(tokens_in) if tokens_in is not None else None,
-                        tokens_out=int(tokens_out) if tokens_out is not None else None,
-                        tokens_total=int(tokens_total) if tokens_total is not None else None,
                         cash_netted=float(cash_netted) if cash_netted is not None else None,
                         current_balance=float(bankroll) if bankroll is not None else None,
                         cash_balance=float(cash_balance) if cash_balance is not None else None,
@@ -1067,22 +1093,9 @@ def run_multi_agent(
                     db_writer.insert_trade_executions(run_id=run_id, executions=executions)
 
                     equity_snapshots: list[EquitySnapshotRecord] = []
-                    if isinstance(pre_portfolio_snapshot, dict):
-                        equity_snapshots.append(
-                            EquitySnapshotRecord(
-                                snapshot_type="pre",
-                                cash_balance=_coerce_float(pre_portfolio_snapshot.get("cash_balance")),
-                                positions_value=_coerce_float(pre_portfolio_snapshot.get("positions_value")),
-                                bankroll=_coerce_float(pre_portfolio_snapshot.get("bankroll")),
-                                gross_exposure=_coerce_float(pre_portfolio_snapshot.get("gross_exposure")),
-                                open_positions=_coerce_int(pre_portfolio_snapshot.get("open_positions")),
-                                snapshot_json=pre_portfolio_snapshot,
-                            )
-                        )
                     if isinstance(portfolio_snapshot, dict):
                         equity_snapshots.append(
                             EquitySnapshotRecord(
-                                snapshot_type="post",
                                 cash_balance=_coerce_float(portfolio_snapshot.get("cash_balance")),
                                 positions_value=_coerce_float(portfolio_snapshot.get("positions_value")),
                                 bankroll=_coerce_float(portfolio_snapshot.get("bankroll")),
@@ -1092,6 +1105,7 @@ def run_multi_agent(
                             )
                         )
                     db_writer.insert_equity_snapshots(run_id=run_id, snapshots=equity_snapshots)
+                    db_writer.insert_open_positions(run_id=run_id, positions=post_open_positions)
             except Exception as exc:  # noqa: BLE001
                 print(f"Failed to write run to DB: {exc}")
         record_summary = {

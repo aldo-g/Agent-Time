@@ -337,7 +337,6 @@ resource "aws_instance" "bot" {
     aws_region                     = var.aws_region
     bot_key                        = each.key
     agent_name                     = each.value.agent_name
-    expected_wallet                = each.value.expected_wallet
     llm_env_var                    = each.value.llm_env_var
     manifold_env_var               = each.value.manifold_env_var
     llm_param_name                 = each.value.llm_param_name

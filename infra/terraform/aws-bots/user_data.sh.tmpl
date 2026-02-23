@@ -28,7 +28,6 @@ fi
 
 cat >"$${TMP_FILE}" <<ENV
 AGENT_NAME=${agent_name}
-AGENT_EXPECTED_WALLET=${expected_wallet}
 ${llm_env_var}=$${LLM_KEY}
 ${manifold_env_var}=$${MANIFOLD_KEY}
 AGENT_RESULTS_PATH=/results/${bot_key}_runs.jsonl

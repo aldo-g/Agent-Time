@@ -237,4 +237,3 @@ done
 
 - Timers are enabled by default (`enable_timers = true`), so services continue running on schedule.
 - If `database_url_param_name` is unset, DB writes are skipped by design.
-- Wallet verification is enabled by default via `MANIFOLD_VERIFY_BEFORE_EACH_REQUEST=1`.

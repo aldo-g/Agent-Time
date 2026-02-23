@@ -68,13 +68,26 @@ class TradeExecutionRecord:
 
 @dataclass
 class EquitySnapshotRecord:
-    snapshot_type: str
     cash_balance: float | None = None
     positions_value: float | None = None
     bankroll: float | None = None
     gross_exposure: float | None = None
     open_positions: int | None = None
     snapshot_json: dict | None = None
+    created_at: datetime | None = None
+
+
+@dataclass
+class OpenPositionRecord:
+    market_id: str
+    market_slug: str | None = None
+    question: str | None = None
+    outcome: str | None = None
+    shares: float | None = None
+    avg_price: float | None = None
+    mark_price: float | None = None
+    position_value: float | None = None
+    pnl: float | None = None
     created_at: datetime | None = None
 
 
@@ -134,9 +147,6 @@ class DbWriter:
                         error TEXT,
                         no_trade_reason TEXT,
                         tool_calls_count INTEGER,
-                        tokens_in INTEGER,
-                        tokens_out INTEGER,
-                        tokens_total INTEGER,
                         cash_netted NUMERIC,
                         current_balance NUMERIC,
                         cash_balance NUMERIC,
@@ -203,13 +213,31 @@ class DbWriter:
                     CREATE TABLE IF NOT EXISTS equity_snapshots (
                         id BIGSERIAL PRIMARY KEY,
                         run_id BIGINT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-                        snapshot_type TEXT NOT NULL,
+                        snapshot_type TEXT NOT NULL DEFAULT 'post',
                         cash_balance NUMERIC,
                         positions_value NUMERIC,
                         bankroll NUMERIC,
                         gross_exposure NUMERIC,
                         open_positions INTEGER,
                         snapshot_json JSONB,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    );
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS open_positions (
+                        id BIGSERIAL PRIMARY KEY,
+                        run_id BIGINT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                        market_id TEXT NOT NULL,
+                        market_slug TEXT,
+                        question TEXT,
+                        outcome TEXT,
+                        shares NUMERIC,
+                        avg_price NUMERIC,
+                        mark_price NUMERIC,
+                        position_value NUMERIC,
+                        pnl NUMERIC,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                     );
                     """
@@ -221,6 +249,9 @@ class DbWriter:
                 cur.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS plan_output_json JSONB;")
                 cur.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS execution_output TEXT;")
                 cur.execute("ALTER TABLE runs ADD COLUMN IF NOT EXISTS metadata JSONB;")
+                cur.execute("ALTER TABLE runs DROP COLUMN IF EXISTS tokens_in;")
+                cur.execute("ALTER TABLE runs DROP COLUMN IF EXISTS tokens_out;")
+                cur.execute("ALTER TABLE runs DROP COLUMN IF EXISTS tokens_total;")
                 # Older schemas had runs.agent_id as NOT NULL; make it optional so placeholders can be created
                 # without a separate agents table.
                 cur.execute(
@@ -253,6 +284,14 @@ class DbWriter:
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_trade_exec_bet_id ON trade_executions(bet_id);")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_trade_exec_created_at ON trade_executions(created_at);")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_equity_snapshots_run ON equity_snapshots(run_id);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_open_positions_run ON open_positions(run_id);")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_open_positions_market ON open_positions(market_id);")
+                cur.execute(
+                    """
+                    ALTER TABLE equity_snapshots
+                    ALTER COLUMN snapshot_type SET DEFAULT 'post';
+                    """
+                )
 
     def create_session(
         self,
@@ -359,9 +398,6 @@ class DbWriter:
         error: Optional[str],
         no_trade_reason: Optional[str],
         tool_calls_count: Optional[int],
-        tokens_in: Optional[int],
-        tokens_out: Optional[int],
-        tokens_total: Optional[int],
         cash_netted: Optional[float],
         current_balance: Optional[float],
         cash_balance: Optional[float],
@@ -384,9 +420,6 @@ class DbWriter:
                         error = %s,
                         no_trade_reason = %s,
                         tool_calls_count = %s,
-                        tokens_in = %s,
-                        tokens_out = %s,
-                        tokens_total = %s,
                         cash_netted = %s,
                         current_balance = %s,
                         cash_balance = %s,
@@ -405,9 +438,6 @@ class DbWriter:
                         error,
                         no_trade_reason,
                         tool_calls_count,
-                        tokens_in,
-                        tokens_out,
-                        tokens_total,
                         cash_netted,
                         current_balance,
                         cash_balance,
@@ -533,7 +563,7 @@ class DbWriter:
         rows = [
             (
                 run_id,
-                snapshot.snapshot_type,
+                "post",
                 snapshot.cash_balance,
                 snapshot.positions_value,
                 snapshot.bankroll,
@@ -548,6 +578,7 @@ class DbWriter:
             return
         with self.connect() as conn:
             with conn.cursor() as cur:
+                cur.execute("DELETE FROM equity_snapshots WHERE run_id = %s;", (run_id,))
                 cur.executemany(
                     """
                     INSERT INTO equity_snapshots (
@@ -562,6 +593,48 @@ class DbWriter:
                         created_at
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    """,
+                    rows,
+                )
+
+    def insert_open_positions(self, *, run_id: int, positions: Iterable[OpenPositionRecord]) -> None:
+        rows = [
+            (
+                run_id,
+                position.market_id,
+                position.market_slug,
+                position.question,
+                position.outcome,
+                position.shares,
+                position.avg_price,
+                position.mark_price,
+                position.position_value,
+                position.pnl,
+                position.created_at or datetime.now(timezone.utc),
+            )
+            for position in positions
+        ]
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM open_positions WHERE run_id = %s;", (run_id,))
+                if not rows:
+                    return
+                cur.executemany(
+                    """
+                    INSERT INTO open_positions (
+                        run_id,
+                        market_id,
+                        market_slug,
+                        question,
+                        outcome,
+                        shares,
+                        avg_price,
+                        mark_price,
+                        position_value,
+                        pnl,
+                        created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                     """,
                     rows,
                 )

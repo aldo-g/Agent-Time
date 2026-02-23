@@ -107,7 +107,7 @@ def build_agent_tools(mode: str = "full") -> List[StructuredTool]:
         description=(
             "Submit a Manifold bet using play-money Mana. Provide the market_id, desired outcome or answer "
             "label, Mana amount, and belief_prob. The execution guard rejects non-positive edge, oversize bets "
-            "(Kelly/risk caps), and news-driven trades without at least one trusted catalyst URL."
+            "(Kelly/risk caps)."
         ),
         args_schema=PlaceBetInput,
     )
