@@ -28,6 +28,154 @@ const formatPercent = (value) => {
   return `${sign}${(Math.abs(value) * 100).toFixed(1)}%`;
 };
 
+function parseDateString(dateText) {
+  const [year, month, day] = String(dateText || "")
+    .split("-")
+    .map((part) => Number(part));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+  return new Date(year, month - 1, day);
+}
+
+function formatDateShort(dateText) {
+  const parsed = parseDateString(dateText);
+  if (!parsed) return String(dateText || "n/a");
+  return parsed.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function buildValueSeries(agent) {
+  const history = Array.isArray(agent.history) ? agent.history : [];
+  const entries = history
+    .map((entry) => {
+      const bankroll = Number(entry.bankroll);
+      const pnl = Number(entry.pnl);
+      return {
+        date: String(entry.date || ""),
+        bankroll: Number.isFinite(bankroll) ? bankroll : null,
+        pnl: Number.isFinite(pnl) ? pnl : 0,
+      };
+    })
+    .filter((entry) => entry.date)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (!entries.length) return [];
+  const bankrollSeries = entries.filter((entry) => Number.isFinite(entry.bankroll));
+  if (bankrollSeries.length === entries.length) {
+    return bankrollSeries.map((entry) => ({ date: entry.date, value: entry.bankroll }));
+  }
+
+  const current = Number(agent.totalAssets ?? agent.bankroll);
+  if (!Number.isFinite(current)) return [];
+  const totalChange = entries.reduce((sum, entry) => sum + entry.pnl, 0);
+  const startingValue = current - totalChange;
+  let cumulative = 0;
+  return entries.map((entry) => {
+    cumulative += entry.pnl;
+    return { date: entry.date, value: startingValue + cumulative };
+  });
+}
+
+function renderValueChart(agent) {
+  const series = buildValueSeries(agent);
+  if (series.length < 2) {
+    return `
+      <section class="detail-card value-card">
+        <div class="value-card-header">
+          <h3>Value Over Time</h3>
+        </div>
+        <p class="empty-state">Need at least 2 daily snapshots to draw the value trend.</p>
+      </section>
+    `;
+  }
+
+  const chartWidth = 860;
+  const chartHeight = 260;
+  const padding = { top: 16, right: 16, bottom: 32, left: 56 };
+  const innerWidth = chartWidth - padding.left - padding.right;
+  const innerHeight = chartHeight - padding.top - padding.bottom;
+  const values = series.map((entry) => entry.value);
+  let minValue = Math.min(...values);
+  let maxValue = Math.max(...values);
+  if (minValue === maxValue) {
+    const buffer = Math.max(1, Math.abs(minValue) * 0.02);
+    minValue -= buffer;
+    maxValue += buffer;
+  }
+
+  const toX = (index) =>
+    padding.left + (series.length === 1 ? 0 : (index / (series.length - 1)) * innerWidth);
+  const toY = (value) =>
+    padding.top + ((maxValue - value) / (maxValue - minValue)) * innerHeight;
+
+  const points = series.map((entry, index) => ({
+    ...entry,
+    x: toX(index),
+    y: toY(entry.value),
+  }));
+  const baselineY = padding.top + innerHeight;
+  const linePath = points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(" ");
+  const areaPath = `${linePath} L ${points[points.length - 1].x.toFixed(2)} ${baselineY.toFixed(2)} L ${points[0].x.toFixed(2)} ${baselineY.toFixed(2)} Z`;
+
+  const tickCount = 4;
+  const ticks = Array.from({ length: tickCount }, (_, index) => {
+    const ratio = index / (tickCount - 1);
+    const value = maxValue - ratio * (maxValue - minValue);
+    return {
+      value,
+      y: toY(value),
+    };
+  });
+
+  const first = series[0];
+  const last = series[series.length - 1];
+  const change = last.value - first.value;
+  const changePercent = first.value > 0 ? change / first.value : null;
+  const changeClass = change > 0 ? "positive" : change < 0 ? "negative" : "";
+
+  return `
+    <section class="detail-card value-card">
+      <div class="value-card-header">
+        <h3>Value Over Time</h3>
+        <div class="value-card-stats">
+          <span>Start ${currency(Math.round(first.value))}</span>
+          <span>Current ${currency(Math.round(last.value))}</span>
+          <span class="${changeClass}">Change ${formatSignedMana(change)} (${formatPercent(changePercent)})</span>
+        </div>
+      </div>
+      <div class="value-chart-shell">
+        <svg class="value-chart" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Total assets over time chart">
+          ${ticks
+            .map(
+              (tick) => `
+            <line x1="${padding.left}" y1="${tick.y.toFixed(2)}" x2="${(padding.left + innerWidth).toFixed(2)}" y2="${tick.y.toFixed(2)}" class="value-grid-line" />
+            <text x="${(padding.left - 8).toFixed(2)}" y="${(tick.y + 4).toFixed(2)}" text-anchor="end" class="value-axis-text">${formatMana(tick.value)}</text>
+          `
+            )
+            .join("")}
+          <path d="${areaPath}" class="value-area" />
+          <path d="${linePath}" class="value-line" />
+          ${points
+            .map(
+              (point) => `
+            <circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3.2" class="value-point">
+              <title>${formatDateShort(point.date)}: ${formatMana(point.value)} mana</title>
+            </circle>
+          `
+            )
+            .join("")}
+        </svg>
+        <div class="value-axis-dates">
+          <span>${formatDateShort(first.date)}</span>
+          <span>${formatDateShort(last.date)}</span>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function totalGainPercent(agent) {
   const history = Array.isArray(agent.history) ? agent.history : [];
   const totalChange = history.reduce((sum, entry) => {
@@ -75,11 +223,20 @@ function renderHeaderStats(agent) {
 }
 
 function tradeStatusPill(trade) {
-  if (trade.status === "OPEN") {
+  const status = String(trade.status || "").toUpperCase();
+  if (status === "OPEN") {
     return `<span class="pill open">Open</span>`;
   }
-  const win = (trade.settlement ?? 0) >= 0;
-  return `<span class="pill ${win ? "resolved" : "loss"}">${win ? "Win" : "Loss"}</span>`;
+  if (status === "EXECUTED") {
+    return `<span class="pill executed">Executed</span>`;
+  }
+  if (status === "SKIPPED") {
+    return `<span class="pill skipped">Skipped</span>`;
+  }
+  if (status === "FAILED") {
+    return `<span class="pill failed">Failed</span>`;
+  }
+  return `<span class="pill">${status || "Unknown"}</span>`;
 }
 
 function renderTradesTable(trades = []) {
@@ -120,11 +277,17 @@ function renderTradesTable(trades = []) {
                 : "";
               const reason = trade.reason ? String(trade.reason) : "";
               const reasonBlock = reason ? `<p class="trade-reason">${reason}</p>` : "";
+              const marketLabel = trade.marketUrl
+                ? `<a href="${trade.marketUrl}" target="_blank" rel="noreferrer">${trade.market}</a>`
+                : `<span>${trade.market}</span>`;
+              const tradeTime = trade.timestamp
+                ? new Date(trade.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                : "n/a";
               return `
                 <tr>
-                  <td>${new Date(trade.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                  <td>${tradeTime}</td>
                   <td>
-                    <a href="${trade.marketUrl}" target="_blank" rel="noreferrer">${trade.market}</a>
+                    ${marketLabel}
                     ${reasonBlock}
                     ${sourceList}
                     ${toolList}
@@ -237,6 +400,7 @@ function renderPositions(positions = []) {
 
 function renderDetail(agent) {
   detailContainer.innerHTML = `
+    ${renderValueChart(agent)}
     <section class="detail-card tabbed-card">
       <div class="tab-header">
         <h3>Positions & Trades</h3>
@@ -282,21 +446,11 @@ function setupTabs(container) {
 const params = new URLSearchParams(window.location.search);
 const apiOverride = params.get("api");
 const apiEndpoint = apiOverride || "/api/live-runs?refresh=1";
-const fallbackEndpoint = "data/live_runs.json";
 
 async function loadPayload() {
-  const endpoints = [apiEndpoint, fallbackEndpoint];
-  let lastError = null;
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(endpoint, { cache: "no-store" });
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      return await response.json();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
+  const response = await fetch(apiEndpoint, { cache: "no-store" });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  return await response.json();
 }
 
 async function bootstrap() {
@@ -312,7 +466,8 @@ async function bootstrap() {
     const latestRun = agent.history && agent.history.length
       ? agent.history[agent.history.length - 1].date
       : "n/a";
-    agentMetaEl.textContent = `${agent.provider} • ${agent.model} • Wallet ${agent.wallet} • Last run ${latestRun}`;
+    const walletNote = agent.wallet ? ` • Wallet ${agent.wallet}` : "";
+    agentMetaEl.textContent = `${agent.provider} • ${agent.model}${walletNote} • Last run ${latestRun}`;
 
     renderHeaderStats(agent);
     renderDetail(agent);
@@ -322,7 +477,7 @@ async function bootstrap() {
     }
   } catch (error) {
     agentNameEl.textContent = "Error";
-    detailContainer.innerHTML = `<p class="empty-state">Unable to load data: ${error}</p>`;
+    detailContainer.innerHTML = `<p class="empty-state">Unable to load API data from ${apiEndpoint}: ${error}</p>`;
   }
 }
 

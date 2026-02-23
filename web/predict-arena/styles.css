@@ -191,6 +191,89 @@ main {
   background: rgba(255, 255, 255, 0.6);
 }
 
+.value-card {
+  margin-bottom: 0.9rem;
+  padding: 1rem 1.1rem 1.05rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.72)),
+    var(--panel);
+}
+
+.value-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin-bottom: 0.65rem;
+}
+
+.value-card-header h3 {
+  margin: 0;
+  font-family: var(--font-title);
+}
+
+.value-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.value-chart-shell {
+  border: 1px solid var(--panel-border);
+  border-radius: 0.7rem;
+  padding: 0.65rem 0.7rem 0.45rem;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.value-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.value-grid-line {
+  stroke: var(--panel-border);
+  stroke-dasharray: 4 5;
+  stroke-width: 1;
+}
+
+.value-axis-text {
+  fill: var(--muted);
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.value-area {
+  fill: rgba(159, 75, 58, 0.12);
+}
+
+.value-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.value-point {
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 1.7;
+}
+
+.value-axis-dates {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  padding: 0 0.2rem;
+}
+
 .tabbed-card {
   padding: 0;
   overflow: hidden;
@@ -435,6 +518,21 @@ main {
   color: var(--accent);
 }
 
+.pill.executed {
+  background: rgba(42, 125, 79, 0.15);
+  color: var(--positive);
+}
+
+.pill.skipped {
+  background: rgba(170, 146, 82, 0.16);
+  color: #7a5f1a;
+}
+
+.pill.failed {
+  background: rgba(182, 58, 58, 0.15);
+  color: var(--negative);
+}
+
 .pill.resolved {
   background: rgba(42, 125, 79, 0.15);
   color: var(--positive);
@@ -491,6 +589,15 @@ main {
 @media (max-width: 640px) {
   body {
     padding: 1.5rem 1rem;
+  }
+
+  .value-card-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .value-card-stats {
+    justify-content: flex-start;
   }
 
   .positions-head {

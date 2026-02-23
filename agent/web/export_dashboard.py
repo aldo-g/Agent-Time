@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+
+from agent.db import DbWriter
 
 
 PROVIDER_LABELS = {
@@ -223,6 +226,7 @@ def _build_history(
         history.append(
             {
                 "date": date_key,
+                "bankroll": bankroll,
                 "pnl": pnl,
                 "trades": trades_by_date.get(date_key, 0),
             }
@@ -256,7 +260,7 @@ def _build_trades(
                 "marketUrl": entry.get("market_url") or "",
                 "action": entry.get("action") or "BUY",
                 "outcome": entry.get("outcome") or "",
-                "amount": float(entry.get("amount") or 0.0),
+                "amount": abs(_coerce_float(entry.get("amount"), default=0.0) or 0.0),
                 "probBefore": entry.get("prob_before"),
                 "probAfter": entry.get("prob_after"),
                 "status": entry.get("status") or "OPEN",
@@ -297,6 +301,401 @@ def _latest_timestamp(*collections: Iterable[Dict[str, Any]]) -> str:
     return latest.isoformat()
 
 
+def _coerce_float(value: object, default: float | None = 0.0) -> float | None:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_datetime(value: object) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return _parse_iso(value)
+    return None
+
+
+def _coerce_json_dict(value: object) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _coerce_json_list(value: object) -> List[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
+def _extract_sources(reason: str, raw_response: Dict[str, Any]) -> List[str]:
+    sources = _extract_links(reason)
+    catalyst_urls = raw_response.get("catalyst_urls")
+    if isinstance(catalyst_urls, list):
+        for entry in catalyst_urls:
+            url = str(entry or "").strip()
+            if url:
+                sources.append(url)
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for url in sources:
+        if url in seen:
+            continue
+        seen.add(url)
+        deduped.append(url)
+    return deduped
+
+
+def _build_history_from_db(
+    *,
+    run_rows: List[tuple],
+    trades_by_date: Dict[str, int],
+) -> List[Dict[str, Any]]:
+    latest_by_date: Dict[str, Dict[str, Any]] = {}
+    for row in run_rows:
+        started_at = _coerce_datetime(row[1])
+        finished_at = _coerce_datetime(row[2])
+        ts = finished_at or started_at
+        if ts is None:
+            continue
+        bankroll = _coerce_float(row[3], default=float("nan"))
+        if bankroll != bankroll:  # NaN guard
+            continue
+        date_key = ts.date().isoformat()
+        existing = latest_by_date.get(date_key)
+        if not existing or ts > existing["timestamp"]:
+            latest_by_date[date_key] = {"timestamp": ts, "bankroll": bankroll}
+    history: List[Dict[str, Any]] = []
+    prev_bankroll: Optional[float] = None
+    for date_key in sorted(latest_by_date.keys()):
+        bankroll = latest_by_date[date_key]["bankroll"]
+        pnl = bankroll - prev_bankroll if prev_bankroll is not None else 0.0
+        history.append(
+            {
+                "date": date_key,
+                "bankroll": bankroll,
+                "pnl": pnl,
+                "trades": trades_by_date.get(date_key, 0),
+            }
+        )
+        prev_bankroll = bankroll
+    return history
+
+
+def _build_payload_from_db(*, agents_path: Path, markets_path: Path) -> Dict[str, Any]:
+    agents_payload = _load_json(agents_path) or []
+    if isinstance(agents_payload, dict):
+        agents_payload = [agents_payload]
+    agent_configs = [
+        AgentConfig.from_dict(entry)
+        for entry in agents_payload
+        if isinstance(entry, dict) and entry.get("name")
+    ]
+    if not agent_configs:
+        return {
+            "lastUpdated": datetime.now(timezone.utc).isoformat(),
+            "summary": {"activeMarkets": 0, "totalTradesToday": 0, "manaInPlay": 0.0},
+            "agents": [],
+        }
+
+    db_writer = DbWriter.from_env()
+    db_writer.ping()
+    db_writer.ensure_schema()
+
+    active_markets = 0
+    timestamps: List[datetime] = []
+    agent_entries: List[Dict[str, Any]] = []
+    today = datetime.now(timezone.utc).date().isoformat()
+
+    with db_writer.connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT market_json, started_at
+                FROM sessions
+                ORDER BY started_at DESC, id DESC
+                LIMIT 1;
+                """
+            )
+            session_row = cur.fetchone()
+            if session_row:
+                active_markets = _count_markets(session_row[0])
+                ts = _coerce_datetime(session_row[1])
+                if ts is not None:
+                    timestamps.append(ts)
+            if active_markets <= 0:
+                active_markets = _count_markets(_load_json(markets_path))
+
+            for cfg in agent_configs:
+                provider_key = cfg.model_provider.lower()
+                color, color_muted = PROVIDER_COLORS.get(provider_key, ("#e2e8f0", "rgba(226, 232, 240, 0.18)"))
+                cur.execute(
+                    """
+                    SELECT id, started_at, finished_at, bankroll, cash_balance, position_balance, metadata
+                    FROM runs
+                    WHERE model_provider = %s AND model = %s
+                    ORDER BY COALESCE(finished_at, started_at), id;
+                    """,
+                    (cfg.model_provider, cfg.model),
+                )
+                run_rows = cur.fetchall()
+                run_tools: Dict[int, List[str]] = {}
+                for row in run_rows:
+                    run_id = int(row[0])
+                    metadata = _coerce_json_dict(row[6])
+                    tools_raw = metadata.get("tool_calls")
+                    run_tools[run_id] = [str(tool) for tool in _coerce_json_list(tools_raw) if str(tool).strip()]
+                    started_at = _coerce_datetime(row[1])
+                    finished_at = _coerce_datetime(row[2])
+                    if started_at is not None:
+                        timestamps.append(started_at)
+                    if finished_at is not None:
+                        timestamps.append(finished_at)
+
+                latest_run_id: Optional[int] = None
+                latest_run_time: Optional[datetime] = None
+                latest_finished_run_id: Optional[int] = None
+                latest_finished_time: Optional[datetime] = None
+                for row in run_rows:
+                    run_id = int(row[0])
+                    started_at = _coerce_datetime(row[1])
+                    finished_at = _coerce_datetime(row[2])
+                    run_time = finished_at or started_at
+                    if run_time is None:
+                        continue
+                    if latest_run_time is None or run_time > latest_run_time:
+                        latest_run_time = run_time
+                        latest_run_id = run_id
+                    if finished_at is not None and (
+                        latest_finished_time is None or finished_at > latest_finished_time
+                    ):
+                        latest_finished_time = finished_at
+                        latest_finished_run_id = run_id
+                if latest_finished_run_id is not None:
+                    latest_run_id = latest_finished_run_id
+
+                cash_balance = 0.0
+                bankroll = 0.0
+                positions_value = 0.0
+                wallet = ""
+                positions: List[Dict[str, Any]] = []
+                open_positions = 0
+
+                if latest_run_id is not None:
+                    cur.execute(
+                        """
+                        SELECT cash_balance, positions_value, bankroll, open_positions, snapshot_json
+                        FROM equity_snapshots
+                        WHERE run_id = %s
+                        ORDER BY created_at DESC, id DESC
+                        LIMIT 1;
+                        """,
+                        (latest_run_id,),
+                    )
+                    snapshot_row = cur.fetchone()
+                    snapshot_json: Dict[str, Any] = {}
+                    if snapshot_row:
+                        cash_balance = _coerce_float(snapshot_row[0])
+                        positions_value = _coerce_float(snapshot_row[1])
+                        bankroll = _coerce_float(snapshot_row[2])
+                        open_positions = int(snapshot_row[3] or 0)
+                        snapshot_json = _coerce_json_dict(snapshot_row[4])
+                        wallet = str(snapshot_json.get("wallet") or "")
+                    cur.execute(
+                        """
+                        SELECT
+                            market_id,
+                            market_slug,
+                            question,
+                            outcome,
+                            shares,
+                            avg_price,
+                            mark_price,
+                            position_value,
+                            pnl,
+                            created_at
+                        FROM open_positions
+                        WHERE run_id = %s
+                        ORDER BY ABS(position_value) DESC NULLS LAST, id DESC;
+                        """,
+                        (latest_run_id,),
+                    )
+                    position_rows = cur.fetchall()
+                    for row in position_rows:
+                        ts = _coerce_datetime(row[9])
+                        if ts is not None:
+                            timestamps.append(ts)
+                        positions.append(
+                            {
+                                "market_id": row[0],
+                                "market_slug": row[1],
+                                "question": row[2],
+                                "outcome": row[3],
+                                "shares": _coerce_float(row[4], default=0.0),
+                                "avg_price": _coerce_float(row[5], default=None),
+                                "mark_price": _coerce_float(row[6], default=None),
+                                "position_value": _coerce_float(row[7], default=None),
+                                "pnl": _coerce_float(row[8], default=None),
+                            }
+                        )
+                    if positions and open_positions <= 0:
+                        open_positions = len(positions)
+                    if bankroll <= 0 and latest_run_id is not None:
+                        for row in reversed(run_rows):
+                            if int(row[0]) != latest_run_id:
+                                continue
+                            bankroll = _coerce_float(row[3], default=0.0)
+                            cash_balance = _coerce_float(row[4], default=0.0)
+                            positions_value = _coerce_float(row[5], default=0.0)
+                            break
+
+                cur.execute(
+                    """
+                    SELECT
+                        te.id,
+                        te.run_id,
+                        te.market_id,
+                        te.market_slug,
+                        te.action,
+                        te.outcome,
+                        te.amount,
+                        te.prob_before,
+                        te.prob_after,
+                        te.status,
+                        te.reason,
+                        te.error,
+                        te.summary,
+                        te.bet_id,
+                        te.raw_response,
+                        te.created_at
+                    FROM trade_executions te
+                    JOIN runs r ON r.id = te.run_id
+                    WHERE r.model_provider = %s AND r.model = %s
+                    ORDER BY te.created_at DESC, te.id DESC;
+                    """,
+                    (cfg.model_provider, cfg.model),
+                )
+                trade_rows = cur.fetchall()
+                trades_by_date: Dict[str, int] = defaultdict(int)
+                trades: List[Dict[str, Any]] = []
+                trades_today = 0
+                for row in trade_rows:
+                    trade_id = row[0]
+                    run_id = int(row[1])
+                    market_id = str(row[2] or "")
+                    market_slug = str(row[3] or "")
+                    action = str(row[4] or "").upper() or "BUY"
+                    outcome = str(row[5] or "")
+                    amount = abs(_coerce_float(row[6], default=0.0))
+                    prob_before = _coerce_float(row[7], default=None)
+                    prob_after = _coerce_float(row[8], default=None)
+                    raw_status = str(row[9] or "").strip()
+                    status_lower = raw_status.lower()
+                    if status_lower == "executed":
+                        status = "EXECUTED"
+                    elif status_lower == "open":
+                        status = "OPEN"
+                    elif status_lower == "skipped":
+                        status = "SKIPPED"
+                    elif status_lower == "failed":
+                        status = "FAILED"
+                    elif raw_status:
+                        status = raw_status.upper()
+                    else:
+                        status = "OPEN"
+                    raw_response = _coerce_json_dict(row[14])
+                    market = str(raw_response.get("market") or row[12] or market_id)
+                    market_url = str(raw_response.get("market_url") or "")
+                    if not market_url and market_slug:
+                        market_url = f"https://manifold.markets/{market_slug}"
+                    reason = str(row[10] or row[11] or row[12] or "")
+                    sources = _extract_sources(reason, raw_response)
+                    created_at = _coerce_datetime(row[15])
+                    timestamp = (
+                        created_at.isoformat()
+                        if created_at is not None
+                        else datetime.now(timezone.utc).isoformat()
+                    )
+                    if created_at is not None:
+                        timestamps.append(created_at)
+                        if created_at.date().isoformat() == today and status not in {"SKIPPED", "FAILED"}:
+                            trades_today += 1
+                            trades_by_date[created_at.date().isoformat()] += 1
+                    trades.append(
+                        {
+                            "id": str(row[13] or trade_id),
+                            "timestamp": timestamp,
+                            "market": market,
+                            "marketUrl": market_url,
+                            "action": action,
+                            "outcome": outcome,
+                            "amount": amount,
+                            "probBefore": prob_before,
+                            "probAfter": prob_after,
+                            "status": status,
+                            "reason": reason,
+                            "tools": run_tools.get(run_id, []),
+                            "sources": sources,
+                        }
+                    )
+
+                history = _build_history_from_db(run_rows=run_rows, trades_by_date=trades_by_date)
+                daily_pnl = history[-1]["pnl"] if history else 0.0
+                agent_entries.append(
+                    {
+                        "name": cfg.name,
+                        "slug": _slugify(cfg.name),
+                        "model": cfg.model,
+                        "provider": PROVIDER_LABELS.get(provider_key, cfg.model_provider),
+                        "wallet": wallet,
+                        "cash": cash_balance,
+                        "bankroll": bankroll,
+                        "totalAssets": bankroll,
+                        "positionsValue": positions_value,
+                        "dailyPnl": daily_pnl,
+                        "openPositions": open_positions,
+                        "winRate": 0.0,
+                        "color": color,
+                        "colorMuted": color_muted,
+                        "notes": "Synced from Postgres run/trade/position tables.",
+                        "trades": trades,
+                        "history": history,
+                        "tradesToday": trades_today,
+                        "positions": positions,
+                    }
+                )
+
+    mana_in_play = 0.0
+    for entry in agent_entries:
+        for position in entry.get("positions", []):
+            mana_in_play += abs(_coerce_float(position.get("position_value"), default=0.0))
+
+    last_updated = max(timestamps).isoformat() if timestamps else datetime.now(timezone.utc).isoformat()
+    return {
+        "lastUpdated": last_updated,
+        "summary": {
+            "activeMarkets": active_markets,
+            "totalTradesToday": sum(entry.get("tradesToday", 0) for entry in agent_entries),
+            "manaInPlay": mana_in_play,
+        },
+        "agents": agent_entries,
+    }
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agents", default="agent.json", help="Path to agent.json.")
@@ -311,7 +710,7 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_payload(
+def _build_payload_from_logs(
     *,
     agents_path: Path,
     results_path: Path,
@@ -403,6 +802,27 @@ def build_payload(
         "summary": summary,
         "agents": agent_entries,
     }
+
+
+def build_payload(
+    *,
+    agents_path: Path,
+    results_path: Path,
+    trades_path: Path,
+    markets_path: Path,
+) -> Dict[str, Any]:
+    if os.environ.get("DATABASE_URL"):
+        try:
+            return _build_payload_from_db(agents_path=agents_path, markets_path=markets_path)
+        except Exception:
+            # File-based payload remains as a fallback path.
+            pass
+    return _build_payload_from_logs(
+        agents_path=agents_path,
+        results_path=results_path,
+        trades_path=trades_path,
+        markets_path=markets_path,
+    )
 
 
 def main() -> None:

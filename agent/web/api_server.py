@@ -209,6 +209,7 @@ class PredictArenaHandler(SimpleHTTPRequestHandler):
         path = parsed.path
         query = parse_qs(parsed.query)
         bypass_cache = query.get("refresh") == ["1"] or query.get("cache") == ["0"]
+        live_hydrate = query.get("live") == ["1"]
         if path.startswith("/api/health"):
             self._send_json({"status": "ok"})
             return
@@ -230,7 +231,12 @@ class PredictArenaHandler(SimpleHTTPRequestHandler):
                 trades_path=self.api_config["trades_path"],
                 markets_path=self.api_config["markets_path"],
             )
-            _hydrate_live_positions(payload, self.api_config["agents"], debug=bypass_cache and query.get("debug") == ["1"])
+            if live_hydrate:
+                _hydrate_live_positions(
+                    payload,
+                    self.api_config["agents"],
+                    debug=bypass_cache and query.get("debug") == ["1"],
+                )
             _LIVE_RUNS_CACHE["payload"] = payload
             _LIVE_RUNS_CACHE["ts"] = now
             self._send_json(payload, cache_seconds=_LIVE_RUNS_TTL_SECONDS)
