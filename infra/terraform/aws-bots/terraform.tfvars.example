@@ -11,11 +11,47 @@ market_fetcher_instance_type = "t3.micro"
 market_fetcher_schedule = "hourly"
 market_cache_wait_seconds = 180
 market_cache_max_age_seconds = 7200
+bot_skip_market_fetch = true
+enable_dashboard_service = false
+dashboard_port = 3000
+dashboard_host = "0.0.0.0"
+dashboard_bind_address = "127.0.0.1"
+# dashboard_ingress_cidr = null
+enable_dashboard_alb = false
+# dashboard_alb_ingress_cidr = "0.0.0.0/0"
+# dashboard_target_bot_key = "gpt"
+# dashboard_domain_name = "agent.example.com"
+# dashboard_route53_zone_id = "Z1234567890ABC"
+# dashboard_hosted_zone_name = "example.com"
+# dashboard_certificate_arn = "arn:aws:acm:..."
+# create_dashboard_dns_record = true
+# dashboard_ssl_policy = "ELBSecurityPolicy-2016-08"
 # shared_market_cache_object_key = "shared/shared_markets.json"
 # shared_market_cache_force_destroy = false
 # Optional: shared Supabase/Postgres connection for all bots.
 # database_url_param_name = "/agent-time/dev/DATABASE_URL"
 # require_database_url = true
+
+# Low-cost single-instance profile (no dedicated market-fetcher EC2):
+# enable_shared_market_cache = false
+# create_market_fetcher_instance = false
+# bot_skip_market_fetch = false
+
+# Daily at 12:00 GMT (UTC):
+# default_schedule = "*-*-* 12:00:00 UTC"
+
+# Public dashboard profile:
+# enable_dashboard_service = true
+# dashboard_bind_address = "0.0.0.0"
+# dashboard_ingress_cidr = "0.0.0.0/0"
+
+# HTTPS + domain profile (recommended for sharing):
+# enable_dashboard_service = true
+# enable_dashboard_alb = true
+# dashboard_bind_address = "0.0.0.0"
+# dashboard_ingress_cidr = null
+# dashboard_domain_name = "agent.example.com"
+# dashboard_route53_zone_id = "Z1234567890ABC"
 
 # Optional: allow SSH from your IP. Leave null to use SSM Session Manager only.
 # ssh_ingress_cidr = "1.2.3.4/32"

@@ -94,6 +94,12 @@ variable "market_cache_wait_seconds" {
   default     = 180
 }
 
+variable "bot_skip_market_fetch" {
+  description = "When true, bot runs require a pre-fetched market cache and pass --skip-market-fetch."
+  type        = bool
+  default     = true
+}
+
 variable "max_attempts" {
   description = "Max attempts per run passed to single_runner."
   type        = number
@@ -116,6 +122,90 @@ variable "run_service_once_on_boot" {
   description = "Run one bot session on first boot."
   type        = bool
   default     = true
+}
+
+variable "enable_dashboard_service" {
+  description = "Run the Predict Arena API/UI service on each bot EC2 host."
+  type        = bool
+  default     = false
+}
+
+variable "dashboard_port" {
+  description = "Container and host port for the dashboard service."
+  type        = number
+  default     = 3000
+}
+
+variable "dashboard_host" {
+  description = "Bind host used by api_server inside the dashboard container."
+  type        = string
+  default     = "0.0.0.0"
+}
+
+variable "dashboard_bind_address" {
+  description = "EC2 host bind address for published dashboard port. Keep 127.0.0.1 for private access via SSM."
+  type        = string
+  default     = "127.0.0.1"
+}
+
+variable "dashboard_ingress_cidr" {
+  description = "Optional CIDR allowed to access dashboard_port on bot instances. Set to 0.0.0.0/0 for public access."
+  type        = string
+  default     = null
+}
+
+variable "enable_dashboard_alb" {
+  description = "Expose dashboard through an internet-facing Application Load Balancer (recommended for HTTPS + domain)."
+  type        = bool
+  default     = false
+}
+
+variable "dashboard_alb_ingress_cidr" {
+  description = "CIDR allowed to access dashboard ALB on ports 80/443."
+  type        = string
+  default     = "0.0.0.0/0"
+}
+
+variable "dashboard_target_bot_key" {
+  description = "Bot key whose dashboard service is registered as ALB target."
+  type        = string
+  default     = "gpt"
+}
+
+variable "dashboard_domain_name" {
+  description = "Public DNS name for dashboard HTTPS endpoint (for example app.example.com)."
+  type        = string
+  default     = null
+}
+
+variable "dashboard_hosted_zone_name" {
+  description = "Optional Route53 hosted zone name used to discover zone ID (for example example.com)."
+  type        = string
+  default     = null
+}
+
+variable "dashboard_route53_zone_id" {
+  description = "Optional Route53 hosted zone ID. Preferred over hosted zone name when provided."
+  type        = string
+  default     = null
+}
+
+variable "dashboard_certificate_arn" {
+  description = "Optional ACM certificate ARN for HTTPS listener. If unset, Terraform can create and validate one via Route53."
+  type        = string
+  default     = null
+}
+
+variable "create_dashboard_dns_record" {
+  description = "Create Route53 alias records for dashboard_domain_name to the ALB."
+  type        = bool
+  default     = true
+}
+
+variable "dashboard_ssl_policy" {
+  description = "SSL policy applied to dashboard HTTPS listener."
+  type        = string
+  default     = "ELBSecurityPolicy-2016-08"
 }
 
 variable "default_schedule" {

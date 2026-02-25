@@ -95,6 +95,11 @@ cat >/usr/local/bin/agent-time-run <<'SCRIPT'
 #!/bin/bash
 set -euo pipefail
 
+SKIP_MARKET_FETCH_ARGS=()
+if [ "${bot_skip_market_fetch}" = "true" ]; then
+  SKIP_MARKET_FETCH_ARGS+=(--skip-market-fetch)
+fi
+
 aws ecr get-login-password --region "${aws_region}" | docker login --username AWS --password-stdin "${ecr_registry}"
 docker pull "${ecr_image_uri}"
 docker rm -f agent-time-bot >/dev/null 2>&1 || true
@@ -110,7 +115,7 @@ docker run --rm --name agent-time-bot \
   "${ecr_image_uri}" \
   python -m agent.single_runner \
     --agent "${agent_name}" \
-    --skip-market-fetch \
+    "$${SKIP_MARKET_FETCH_ARGS[@]}" \
     --market-cache /data/shared_markets.json \
     --market-limit "${market_limit}" \
     --max-attempts "${max_attempts}" \
@@ -118,6 +123,36 @@ docker run --rm --name agent-time-bot \
 SCRIPT
 
 chmod +x /usr/local/bin/agent-time-run
+
+cat >/usr/local/bin/agent-time-dashboard-run <<'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+aws ecr get-login-password --region "${aws_region}" | docker login --username AWS --password-stdin "${ecr_registry}"
+docker pull "${ecr_image_uri}"
+docker rm -f agent-time-dashboard >/dev/null 2>&1 || true
+
+docker run --rm --name agent-time-dashboard \
+  --env-file /etc/agent-time/bot.env \
+  --log-driver=awslogs \
+  --log-opt awslogs-region=${aws_region} \
+  --log-opt awslogs-group=${log_group_name} \
+  --log-opt awslogs-stream=${log_stream_name}-dashboard \
+  -p ${dashboard_bind_address}:${dashboard_port}:${dashboard_port} \
+  -v /opt/agent-time/results:/results \
+  -v /opt/agent-time/data:/data \
+  "${ecr_image_uri}" \
+  python -m agent.web.api_server \
+    --host "${dashboard_host}" \
+    --port "${dashboard_port}" \
+    --static-dir /app/web/predict-arena \
+    --agents /app/agent.json \
+    --results "/results/${bot_key}_runs.jsonl" \
+    --trades /results/trades.jsonl \
+    --markets /data/shared_markets.json
+SCRIPT
+
+chmod +x /usr/local/bin/agent-time-dashboard-run
 
 cat >/etc/systemd/system/agent-time-bot.service <<EOF
 [Unit]
@@ -153,8 +188,34 @@ Unit=agent-time-bot.service
 WantedBy=timers.target
 EOF
 
+cat >/etc/systemd/system/agent-time-dashboard.service <<EOF
+[Unit]
+Description=Agent-Time dashboard (${bot_key})
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/bin/agent-time-refresh-env
+ExecStart=/usr/local/bin/agent-time-dashboard-run
+WorkingDirectory=/opt/agent-time
+Restart=always
+RestartSec=5
+TimeoutStartSec=1800
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 systemctl daemon-reload
 systemctl enable agent-time-bot.service
+
+if [ "${enable_dashboard_service}" = "true" ]; then
+  systemctl enable --now agent-time-dashboard.service
+fi
 
 if [ "${enable_timers}" = "true" ]; then
   systemctl enable --now agent-time-bot.timer

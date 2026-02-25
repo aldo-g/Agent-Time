@@ -216,7 +216,7 @@ def _snapshot_to_dict(snapshot: PortfolioSnapshot) -> Dict[str, Any]:
             "mark_price": position.mark_price,
             "pnl": position.pnl,
         }
-        for position in snapshot.positions[:5]
+        for position in snapshot.positions
     ]
     return {
         "wallet": snapshot.wallet,

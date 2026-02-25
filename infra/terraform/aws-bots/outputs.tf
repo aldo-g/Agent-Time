@@ -38,6 +38,29 @@ output "bot_public_ips" {
   }
 }
 
+output "dashboard_public_urls" {
+  description = "Public dashboard URL per bot when dashboard service is enabled."
+  value = var.enable_dashboard_service ? {
+    for key, inst in aws_instance.bot :
+    key => "http://${var.create_public_eips ? aws_eip.bot[key].public_ip : inst.public_ip}:${var.dashboard_port}"
+  } : {}
+}
+
+output "dashboard_alb_dns_name" {
+  description = "ALB DNS name for dashboard HTTPS endpoint."
+  value       = try(aws_lb.dashboard[0].dns_name, null)
+}
+
+output "dashboard_https_url" {
+  description = "Preferred HTTPS dashboard URL when ALB is enabled."
+  value       = local.dashboard_alb_enabled && var.dashboard_domain_name != null ? "https://${var.dashboard_domain_name}" : null
+}
+
+output "dashboard_domain_name" {
+  description = "Configured custom domain for dashboard."
+  value       = var.dashboard_domain_name
+}
+
 output "bot_instance_ids" {
   description = "EC2 instance IDs by bot key."
   value = {

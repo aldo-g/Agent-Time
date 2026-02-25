@@ -40,11 +40,23 @@ data "aws_ssm_parameter" "al2023_ami" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64"
 }
 
+data "aws_route53_zone" "dashboard" {
+  count = var.enable_dashboard_alb && var.dashboard_route53_zone_id == null && var.dashboard_hosted_zone_name != null ? 1 : 0
+  name  = trimsuffix(var.dashboard_hosted_zone_name, ".")
+  private_zone = false
+}
+
 locals {
   name_prefix                   = "${var.project_name}-${var.environment}"
   subnet_ids                    = sort(data.aws_subnets.default.ids)
   bot_keys                      = sort(keys(var.bots))
   shared_market_fetcher_enabled = var.enable_shared_market_cache && var.create_market_fetcher_instance
+  dashboard_alb_enabled         = var.enable_dashboard_service && var.enable_dashboard_alb
+  dashboard_zone_id             = var.dashboard_route53_zone_id != null ? var.dashboard_route53_zone_id : try(data.aws_route53_zone.dashboard[0].zone_id, null)
+  dashboard_can_manage_cert     = var.dashboard_domain_name != null && local.dashboard_zone_id != null
+  dashboard_cert_arn            = var.dashboard_certificate_arn != null ? var.dashboard_certificate_arn : try(aws_acm_certificate_validation.dashboard[0].certificate_arn, null)
+  dashboard_alb_name            = substr(replace("${local.name_prefix}-dashboard-alb", "_", "-"), 0, 32)
+  dashboard_tg_name             = substr(replace("${local.name_prefix}-dashboard-tg", "_", "-"), 0, 32)
   shared_market_cache_bucket_name = lower(
     replace(
       "${local.name_prefix}-${data.aws_caller_identity.current.account_id}-${var.aws_region}-market-cache",
@@ -163,6 +175,43 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "market_cache" {
   }
 }
 
+resource "aws_security_group" "dashboard_alb" {
+  count = local.dashboard_alb_enabled ? 1 : 0
+
+  name        = "${local.name_prefix}-dashboard-alb-sg"
+  description = "Security group for Agent-Time dashboard ALB"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description = "Allow HTTP for HTTPS redirect"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [var.dashboard_alb_ingress_cidr]
+  }
+
+  ingress {
+    description = "Allow HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.dashboard_alb_ingress_cidr]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    Service     = "dashboard-alb"
+  }
+}
+
 resource "aws_security_group" "bots" {
   name        = "${local.name_prefix}-bots-sg"
   description = "Security group for Agent-Time cloud bots"
@@ -176,6 +225,28 @@ resource "aws_security_group" "bots" {
       to_port     = 22
       protocol    = "tcp"
       cidr_blocks = [ingress.value]
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = var.enable_dashboard_service && var.dashboard_ingress_cidr != null ? [var.dashboard_ingress_cidr] : []
+    content {
+      description = "Dashboard web access"
+      from_port   = var.dashboard_port
+      to_port     = var.dashboard_port
+      protocol    = "tcp"
+      cidr_blocks = [ingress.value]
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = local.dashboard_alb_enabled ? [1] : []
+    content {
+      description     = "Dashboard access from ALB"
+      from_port       = var.dashboard_port
+      to_port         = var.dashboard_port
+      protocol        = "tcp"
+      security_groups = [aws_security_group.dashboard_alb[0].id]
     }
   }
 
@@ -347,6 +418,7 @@ resource "aws_instance" "bot" {
     log_stream_name                = each.key
     market_limit                   = var.market_limit
     max_attempts                   = var.max_attempts
+    bot_skip_market_fetch          = var.bot_skip_market_fetch ? "true" : "false"
     database_url_param_name        = var.database_url_param_name != null ? var.database_url_param_name : ""
     database_url_required          = var.require_database_url ? "true" : "false"
     enable_shared_market_cache     = var.enable_shared_market_cache ? "true" : "false"
@@ -356,6 +428,10 @@ resource "aws_instance" "bot" {
     market_cache_max_age_seconds   = var.market_cache_max_age_seconds
     enable_timers                  = var.enable_timers ? "true" : "false"
     run_service_once_on_boot       = var.run_service_once_on_boot ? "true" : "false"
+    enable_dashboard_service       = var.enable_dashboard_service ? "true" : "false"
+    dashboard_port                 = var.dashboard_port
+    dashboard_host                 = var.dashboard_host
+    dashboard_bind_address         = var.dashboard_bind_address
     schedule                       = each.value.schedule
     common_env                     = var.common_env
   })
@@ -413,6 +489,192 @@ resource "aws_instance" "market_fetcher" {
     Project     = var.project_name
     Environment = var.environment
     Bot         = "market-fetcher"
+  }
+}
+
+resource "aws_lb" "dashboard" {
+  count = local.dashboard_alb_enabled ? 1 : 0
+
+  name                       = local.dashboard_alb_name
+  internal                   = false
+  load_balancer_type         = "application"
+  security_groups            = [aws_security_group.dashboard_alb[0].id]
+  subnets                    = local.subnet_ids
+  idle_timeout               = 60
+  drop_invalid_header_fields = true
+
+  lifecycle {
+    precondition {
+      condition     = var.dashboard_domain_name != null
+      error_message = "dashboard_domain_name is required when enable_dashboard_alb is true."
+    }
+    precondition {
+      condition = var.dashboard_certificate_arn != null || local.dashboard_can_manage_cert
+      error_message = "dashboard ALB requires either dashboard_certificate_arn or dashboard_domain_name with a Route53 zone (dashboard_route53_zone_id or dashboard_hosted_zone_name)."
+    }
+    precondition {
+      condition     = contains(local.bot_keys, var.dashboard_target_bot_key)
+      error_message = "dashboard_target_bot_key must match one of the configured bot keys."
+    }
+  }
+
+  tags = {
+    Name        = "${local.name_prefix}-dashboard-alb"
+    Project     = var.project_name
+    Environment = var.environment
+    Service     = "dashboard"
+  }
+}
+
+resource "aws_lb_target_group" "dashboard" {
+  count = local.dashboard_alb_enabled ? 1 : 0
+
+  name        = local.dashboard_tg_name
+  port        = var.dashboard_port
+  protocol    = "HTTP"
+  target_type = "instance"
+  vpc_id      = data.aws_vpc.default.id
+
+  health_check {
+    enabled             = true
+    path                = "/api/health"
+    protocol            = "HTTP"
+    matcher             = "200-399"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+
+  tags = {
+    Name        = "${local.name_prefix}-dashboard-tg"
+    Project     = var.project_name
+    Environment = var.environment
+    Service     = "dashboard"
+  }
+}
+
+resource "aws_lb_target_group_attachment" "dashboard" {
+  count = local.dashboard_alb_enabled ? 1 : 0
+
+  target_group_arn = aws_lb_target_group.dashboard[0].arn
+  target_id        = try(aws_instance.bot[var.dashboard_target_bot_key].id, null)
+  port             = var.dashboard_port
+
+  lifecycle {
+    precondition {
+      condition     = contains(local.bot_keys, var.dashboard_target_bot_key)
+      error_message = "dashboard_target_bot_key must match one of the configured bot keys."
+    }
+  }
+}
+
+resource "aws_lb_listener" "dashboard_http" {
+  count = local.dashboard_alb_enabled ? 1 : 0
+
+  load_balancer_arn = aws_lb.dashboard[0].arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+resource "aws_acm_certificate" "dashboard" {
+  count = local.dashboard_alb_enabled && var.dashboard_certificate_arn == null && local.dashboard_can_manage_cert ? 1 : 0
+
+  domain_name       = var.dashboard_domain_name
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name        = "${local.name_prefix}-dashboard-cert"
+    Project     = var.project_name
+    Environment = var.environment
+    Service     = "dashboard"
+  }
+}
+
+resource "aws_route53_record" "dashboard_cert_validation" {
+  for_each = local.dashboard_alb_enabled && var.dashboard_certificate_arn == null && local.dashboard_can_manage_cert ? {
+    for dvo in aws_acm_certificate.dashboard[0].domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  } : {}
+
+  zone_id         = local.dashboard_zone_id
+  name            = each.value.name
+  type            = each.value.type
+  ttl             = 60
+  records         = [each.value.record]
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "dashboard" {
+  count = local.dashboard_alb_enabled && var.dashboard_certificate_arn == null && local.dashboard_can_manage_cert ? 1 : 0
+
+  certificate_arn         = aws_acm_certificate.dashboard[0].arn
+  validation_record_fqdns = [for record in aws_route53_record.dashboard_cert_validation : record.fqdn]
+}
+
+resource "aws_lb_listener" "dashboard_https" {
+  count = local.dashboard_alb_enabled ? 1 : 0
+
+  load_balancer_arn = aws_lb.dashboard[0].arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = var.dashboard_ssl_policy
+  certificate_arn   = local.dashboard_cert_arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.dashboard[0].arn
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.dashboard_cert_arn != null
+      error_message = "No TLS certificate available for dashboard HTTPS listener."
+    }
+  }
+}
+
+resource "aws_route53_record" "dashboard_alias_a" {
+  count = local.dashboard_alb_enabled && var.create_dashboard_dns_record && var.dashboard_domain_name != null && local.dashboard_zone_id != null ? 1 : 0
+
+  zone_id = local.dashboard_zone_id
+  name    = var.dashboard_domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.dashboard[0].dns_name
+    zone_id                = aws_lb.dashboard[0].zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "dashboard_alias_aaaa" {
+  count = local.dashboard_alb_enabled && var.create_dashboard_dns_record && var.dashboard_domain_name != null && local.dashboard_zone_id != null ? 1 : 0
+
+  zone_id = local.dashboard_zone_id
+  name    = var.dashboard_domain_name
+  type    = "AAAA"
+
+  alias {
+    name                   = aws_lb.dashboard[0].dns_name
+    zone_id                = aws_lb.dashboard[0].zone_id
+    evaluate_target_health = false
   }
 }
 

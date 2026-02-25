@@ -1,0 +1,28 @@
+aws_region                = "eu-west-1"
+environment               = "prod"
+default_instance_type     = "t3.micro"
+create_public_eips        = true
+enable_timers             = true
+run_service_once_on_boot  = true
+default_schedule          = "*-*-* 12:00:00 UTC"
+enable_shared_market_cache = false
+create_market_fetcher_instance = false
+bot_skip_market_fetch     = false
+enable_dashboard_service  = true
+dashboard_port            = 3000
+dashboard_host            = "0.0.0.0"
+dashboard_bind_address    = "0.0.0.0"
+dashboard_ingress_cidr    = "0.0.0.0/0"
+enable_dashboard_alb      = false
+# dashboard_alb_ingress_cidr = "0.0.0.0/0"
+# dashboard_target_bot_key = "gpt"
+# dashboard_domain_name    = "agent.example.com"
+# dashboard_route53_zone_id = "Z1234567890ABC"
+# dashboard_hosted_zone_name = "example.com"
+# dashboard_certificate_arn = "arn:aws:acm:eu-west-1:123456789012:certificate/..."
+# create_dashboard_dns_record = true
+# dashboard_ssl_policy = "ELBSecurityPolicy-2016-08"
+
+# Optional DB wiring:
+# database_url_param_name = "/agent-time/prod/DATABASE_URL"
+# require_database_url    = true
