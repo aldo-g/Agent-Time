@@ -248,7 +248,7 @@ main {
 }
 
 .value-area {
-  fill: rgba(159, 75, 58, 0.12);
+  /* fill set via SVG linearGradient in JS */
 }
 
 .value-line {
@@ -359,7 +359,7 @@ main {
 
 .positions-list li {
   display: grid;
-  grid-template-columns: minmax(220px, 2.5fr) repeat(5, minmax(80px, 1fr));
+  grid-template-columns: minmax(200px, 2fr) minmax(160px, 2fr) repeat(2, minmax(80px, 1fr));
   gap: 0.75rem;
   border-bottom: 1px solid var(--panel-border);
   padding-bottom: 0.85rem;
@@ -382,7 +382,7 @@ main {
 
 .positions-head {
   display: grid;
-  grid-template-columns: minmax(220px, 2.5fr) repeat(5, minmax(80px, 1fr));
+  grid-template-columns: minmax(200px, 2fr) minmax(160px, 2fr) repeat(2, minmax(80px, 1fr));
   gap: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -543,6 +543,302 @@ main {
   color: var(--negative);
 }
 
+/* ── Last-run badge ── */
+.last-run-badge {
+  display: inline-block;
+  margin-left: 0.55rem;
+  padding: 0.12rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent-muted);
+  background: var(--accent-muted);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  vertical-align: middle;
+}
+
+/* ── Stats strip ── */
+.stats-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.stats-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  min-width: 80px;
+}
+
+.stats-chip-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.stats-chip-value {
+  font-family: var(--font-title);
+  font-size: 1.05rem;
+  line-height: 1;
+  color: var(--text);
+}
+
+.stats-chip-value.positive { color: var(--positive); }
+.stats-chip-value.negative { color: var(--negative); }
+
+/* ── Positions: left-border row accent ── */
+.positions-list li.row-positive {
+  border-left: 3px solid var(--positive);
+  padding-left: 0.65rem;
+}
+
+.positions-list li.row-negative {
+  border-left: 3px solid var(--negative);
+  padding-left: 0.65rem;
+}
+
+/* ── Probability combined bar ── */
+.prob-bar-cell {
+  padding: 0.1rem 0;
+}
+
+.prob-bar-combined {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.prob-bar-track-v2 {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--panel-border);
+  overflow: visible;
+}
+
+.prob-bar-fill-v2 {
+  height: 100%;
+  border-radius: 999px;
+  min-width: 2px;
+  transition: width 0.4s ease;
+}
+
+/* vertical marker line at entry probability */
+.prob-bar-marker {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 12px;
+  background: var(--text);
+  border-radius: 1px;
+  transform: translateX(-50%);
+  opacity: 0.45;
+}
+
+.prob-bar-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  line-height: 1;
+  gap: 0.3rem;
+}
+
+.prob-bar-entry,
+.prob-bar-current {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  white-space: nowrap;
+}
+
+.prob-bar-entry {
+  color: var(--muted);
+}
+
+.prob-bar-current {
+  color: var(--text);
+  font-weight: 600;
+  text-align: right;
+}
+
+.prob-bar-sublabel {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.prob-bar-arrow {
+  flex: 1;
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ── Chart hover tooltip ── */
+.chart-tooltip-line {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+
+.chart-tooltip-dot {
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.chart-tooltip-box {
+  fill: var(--text);
+  rx: 5;
+  ry: 5;
+  pointer-events: none;
+}
+
+.chart-tooltip-text {
+  fill: #fff;
+  font-family: var(--font-body);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+/* ── Trade cards ── */
+.trades-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.trade-card {
+  border: 1px solid var(--panel-border);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.trade-card-title {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1.4;
+}
+
+.trade-card-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.trade-card-title a:hover {
+  text-decoration: underline;
+}
+
+.trade-card-reason {
+  margin: 0 0 0.55rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.trade-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--panel-border);
+}
+
+.trade-card-meta strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.trade-card-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.trade-card-pill-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 0.2rem;
+  white-space: nowrap;
+}
+
+/* ── Tool pill tooltip ── */
+.pill.tool-pill {
+  position: relative;
+  cursor: default;
+}
+
+.pill.tool-pill[title]::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  line-height: 1.45;
+  padding: 0.4rem 0.65rem;
+  border-radius: 0.45rem;
+  white-space: normal;
+  width: max-content;
+  max-width: 240px;
+  box-shadow: 0 4px 14px rgba(31, 26, 20, 0.18);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+
+.pill.tool-pill[title]::before {
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 1px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--text);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+
+.pill.tool-pill[title]:hover::after,
+.pill.tool-pill[title]:hover::before {
+  opacity: 1;
+}
+
 .page-footer {
   margin-top: 2rem;
   text-align: center;
@@ -610,6 +906,10 @@ main {
   }
 
   .position-market {
+    grid-column: 1 / -1;
+  }
+
+  .prob-bar-cell {
     grid-column: 1 / -1;
   }
 }

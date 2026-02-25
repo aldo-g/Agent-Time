@@ -1,3 +1,18 @@
+const TOOL_DESCRIPTIONS = {
+  manifold_portfolio: "Fetches the agent's current Manifold portfolio — cash balance, open positions, and unrealised P&L",
+  portfolio_analytics: "Analyses position sizing, concentration, and overall portfolio risk metrics",
+  manifold_markets: "Searches Manifold for prediction markets matching a query or topic",
+  manifold_market_details: "Retrieves full details for a specific market: description, resolution criteria, current probability",
+  manifold_market_history: "Fetches historical probability data and trading volume for a market",
+  manifold_place_bet: "Places a real bet on Manifold — buys YES or NO shares in a market",
+  manifold_sell_position: "Sells an existing position to realise gains or cut losses",
+  limit_order_preview: "Previews the expected shares and cost of a limit order before placing it",
+  risk_gate: "Kelly-criterion risk gate — checks whether a trade size is within safe bankroll limits",
+  duckduckgo_search: "Searches the web via DuckDuckGo to gather news and context for a market",
+  web_scrape: "Scrapes a specific webpage to extract text content for analysis",
+  event_timer: "Checks the current date/time and calculates time remaining until a market's resolution deadline",
+};
+
 const agentNameEl = document.getElementById("agent-name");
 const agentMetaEl = document.getElementById("agent-meta");
 const headerStatsEl = document.getElementById("header-stats");
@@ -134,6 +149,7 @@ function renderValueChart(agent) {
   const change = last.value - first.value;
   const changePercent = first.value > 0 ? change / first.value : null;
   const changeClass = change > 0 ? "positive" : change < 0 ? "negative" : "";
+  const gradientId = "areaGrad";
 
   return `
     <section class="detail-card value-card">
@@ -146,7 +162,13 @@ function renderValueChart(agent) {
         </div>
       </div>
       <div class="value-chart-shell">
-        <svg class="value-chart" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Total assets over time chart">
+        <svg class="value-chart" id="value-chart-svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Total assets over time chart">
+          <defs>
+            <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="rgb(159,75,58)" stop-opacity="0.22"/>
+              <stop offset="100%" stop-color="rgb(159,75,58)" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
           ${ticks
             .map(
               (tick) => `
@@ -155,7 +177,7 @@ function renderValueChart(agent) {
           `
             )
             .join("")}
-          <path d="${areaPath}" class="value-area" />
+          <path d="${areaPath}" class="value-area" fill="url(#${gradientId})" />
           <path d="${linePath}" class="value-line" />
           ${points
             .map(
@@ -166,6 +188,14 @@ function renderValueChart(agent) {
           `
             )
             .join("")}
+          <g class="chart-tooltip-group" style="display:none">
+            <line class="chart-tooltip-line" x1="0" y1="${padding.top}" x2="0" y2="${baselineY}"/>
+            <circle class="chart-tooltip-dot" r="5"/>
+            <rect class="chart-tooltip-box" rx="5" ry="5" width="110" height="36"/>
+            <text class="chart-tooltip-text chart-tooltip-date" x="0" y="0" text-anchor="middle"/>
+            <text class="chart-tooltip-text chart-tooltip-value" x="0" y="0" text-anchor="middle" font-weight="600"/>
+          </g>
+          <rect id="chart-hover-zone" x="${padding.left}" y="${padding.top}" width="${innerWidth}" height="${innerHeight}" fill="transparent" style="cursor:crosshair"/>
         </svg>
         <div class="value-axis-dates">
           <span>${formatDateShort(first.date)}</span>
@@ -174,6 +204,63 @@ function renderValueChart(agent) {
       </div>
     </section>
   `;
+}
+
+function setupChartTooltip(points, padding, chartWidth) {
+  const svg = document.getElementById("value-chart-svg");
+  if (!svg) return;
+  const hoverZone = svg.getElementById ? svg.querySelector("#chart-hover-zone") : null;
+  const tooltipGroup = svg.querySelector(".chart-tooltip-group");
+  if (!hoverZone || !tooltipGroup || !points.length) return;
+
+  const tooltipLine = tooltipGroup.querySelector(".chart-tooltip-line");
+  const tooltipDot = tooltipGroup.querySelector(".chart-tooltip-dot");
+  const tooltipBox = tooltipGroup.querySelector(".chart-tooltip-box");
+  const tooltipDate = tooltipGroup.querySelector(".chart-tooltip-date");
+  const tooltipValue = tooltipGroup.querySelector(".chart-tooltip-value");
+
+  const boxW = 110;
+  const boxH = 36;
+
+  hoverZone.addEventListener("mousemove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const scaleX = 860 / rect.width;
+    const svgX = (e.clientX - rect.left) * scaleX;
+
+    // find nearest point by X
+    let closest = points[0];
+    let minDist = Math.abs(points[0].x - svgX);
+    for (const pt of points) {
+      const d = Math.abs(pt.x - svgX);
+      if (d < minDist) { minDist = d; closest = pt; }
+    }
+
+    tooltipLine.setAttribute("x1", closest.x.toFixed(2));
+    tooltipLine.setAttribute("x2", closest.x.toFixed(2));
+    tooltipDot.setAttribute("cx", closest.x.toFixed(2));
+    tooltipDot.setAttribute("cy", closest.y.toFixed(2));
+
+    // clamp box so it stays within viewBox
+    const boxX = Math.min(Math.max(closest.x - boxW / 2, padding.left), chartWidth - padding.right - boxW);
+    const boxY = Math.max(closest.y - boxH - 10, padding.top);
+    tooltipBox.setAttribute("x", boxX.toFixed(2));
+    tooltipBox.setAttribute("y", boxY.toFixed(2));
+
+    const textX = (boxX + boxW / 2).toFixed(2);
+    tooltipDate.setAttribute("x", textX);
+    tooltipDate.setAttribute("y", (boxY + 13).toFixed(2));
+    tooltipDate.textContent = formatDateShort(closest.date);
+
+    tooltipValue.setAttribute("x", textX);
+    tooltipValue.setAttribute("y", (boxY + 27).toFixed(2));
+    tooltipValue.textContent = `${formatMana(closest.value)} mana`;
+
+    tooltipGroup.style.display = "";
+  });
+
+  hoverZone.addEventListener("mouseleave", () => {
+    tooltipGroup.style.display = "none";
+  });
 }
 
 function totalGainPercent(agent) {
@@ -244,64 +331,47 @@ function renderTradesTable(trades = []) {
     return "<p class='empty-state'>No trades placed yet.</p>";
   }
   return `
-    <div class="table-wrapper">
-      <table class="trades-table">
-        <thead>
-          <tr>
-            <th>When</th>
-            <th>Market / Rationale</th>
-            <th>Action</th>
-            <th>Stake</th>
-            <th>Prob Δ</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${trades
-            .map((trade) => {
-              const probAfter = Number(trade.probAfter);
-              const probBefore = Number(trade.probBefore);
-              const delta = Number.isFinite(probAfter) && Number.isFinite(probBefore) ? probAfter - probBefore : 0;
-              const tools = Array.isArray(trade.tools) ? trade.tools.filter(Boolean) : [];
-              const sources = Array.isArray(trade.sources) ? trade.sources.filter(Boolean) : [];
-              const toolList = tools.length
-                ? `<div class="tool-list">${tools.map((tool) => `<span class="pill tool-pill">${tool}</span>`).join("")}</div>`
-                : "";
-              const sourceList = sources.length
-                ? `<div class="source-list">${sources
-                    .map((url) => {
-                      const label = url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
-                      return `<a class="pill source-pill" href="${url}" target="_blank" rel="noreferrer">${label}</a>`;
-                    })
-                    .join("")}</div>`
-                : "";
-              const reason = trade.reason ? String(trade.reason) : "";
-              const reasonBlock = reason ? `<p class="trade-reason">${reason}</p>` : "";
-              const marketLabel = trade.marketUrl
-                ? `<a href="${trade.marketUrl}" target="_blank" rel="noreferrer">${trade.market}</a>`
-                : `<span>${trade.market}</span>`;
-              const tradeTime = trade.timestamp
-                ? new Date(trade.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-                : "n/a";
-              return `
-                <tr>
-                  <td>${tradeTime}</td>
-                  <td>
-                    ${marketLabel}
-                    ${reasonBlock}
-                    ${sourceList}
-                    ${toolList}
-                  </td>
-                  <td>${trade.action} ${trade.outcome}</td>
-                  <td>${currency(trade.amount)}</td>
-                  <td>${(delta * 100).toFixed(1)}pp</td>
-                  <td>${tradeStatusPill(trade)}</td>
-                </tr>
-              `;
-            })
-            .join("")}
-        </tbody>
-      </table>
+    <div class="trades-list">
+      ${trades
+        .map((trade) => {
+          const probAfter = Number(trade.probAfter);
+          const probBefore = Number(trade.probBefore);
+          const delta = Number.isFinite(probAfter) && Number.isFinite(probBefore) ? probAfter - probBefore : null;
+          const tools = Array.isArray(trade.tools) ? trade.tools.filter(Boolean) : [];
+          const sources = Array.isArray(trade.sources) ? trade.sources.filter(Boolean) : [];
+          const sourcePills = sources.map((url) => {
+            const label = url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+            return `<a class="pill source-pill" href="${url}" target="_blank" rel="noreferrer">${label}</a>`;
+          });
+          const toolPills = tools.map((tool) => {
+            const desc = TOOL_DESCRIPTIONS[tool];
+            return `<span class="pill tool-pill" ${desc ? `title="${desc}"` : ""}>${tool}</span>`;
+          });
+          const reason = trade.reason ? String(trade.reason) : "";
+          const marketTitle = trade.marketUrl
+            ? `<a href="${trade.marketUrl}" target="_blank" rel="noreferrer">${trade.market}</a>`
+            : trade.market;
+          const tradeTime = trade.timestamp
+            ? new Date(trade.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+            : "n/a";
+          const deltaStr = delta != null ? `${delta >= 0 ? "+" : ""}${(delta * 100).toFixed(1)}pp` : "—";
+          return `
+            <div class="trade-card">
+              <p class="trade-card-title">${marketTitle}</p>
+              ${reason ? `<p class="trade-card-reason">${reason}</p>` : ""}
+              <div class="trade-card-meta">
+                <span>${tradeTime}</span>
+                <span><strong>${trade.action} ${trade.outcome}</strong></span>
+                <span>${currency(trade.amount)}</span>
+                <span>Δ ${deltaStr}</span>
+                ${tradeStatusPill(trade)}
+              </div>
+              ${sourcePills.length ? `<div class="trade-card-pills trade-card-sources"><span class="trade-card-pill-label">Sources</span>${sourcePills.join("")}</div>` : ""}
+              ${toolPills.length ? `<div class="trade-card-pills trade-card-tools"><span class="trade-card-pill-label">Tools</span>${toolPills.join("")}</div>` : ""}
+            </div>
+          `;
+        })
+        .join("")}
     </div>
   `;
 }
@@ -337,11 +407,9 @@ function renderPositions(positions = []) {
     </div>
     <div class="positions-head">
       <span>Market</span>
+      <span>Probability</span>
       <span>Bought</span>
-      <span>Current</span>
       <span>Win Value</span>
-      <span>Δ Prob</span>
-      <span>PnL</span>
     </div>
     <ul class="positions-list">
       ${positions
@@ -353,43 +421,59 @@ function renderPositions(positions = []) {
           const currentProb = Number.isFinite(mark) ? mark : null;
           const delta = Number.isFinite(avg) && Number.isFinite(mark) ? mark - avg : null;
           const entryMana = Number.isFinite(avg) ? avg * shares : null;
-          const currentMana = Number.isFinite(mark) ? mark * shares : null;
           const winValue = Number.isFinite(shares) ? shares : null;
           const pnlValue = Number.isFinite(position.pnl)
             ? position.pnl
             : Number.isFinite(avg) && Number.isFinite(mark)
             ? (mark - avg) * shares
             : null;
-          const deltaClass = delta == null ? "" : delta >= 0 ? "positive" : "negative";
-          const pnlValueClass = pnlValue == null ? "" : pnlValue >= 0 ? "positive" : "negative";
+          const rowClass = pnlValue == null ? "" : pnlValue >= 0 ? "row-positive" : "row-negative";
+
+          // Probability bar
+          const entryPct = entryProb != null ? entryProb * 100 : null;
+          const currentPct = currentProb != null ? currentProb * 100 : null;
+          const moved = delta != null ? (delta > 0.001 ? "up" : delta < -0.001 ? "down" : "flat") : "flat";
+          const barFillColor = moved === "up" ? "var(--positive)" : moved === "down" ? "var(--negative)" : "var(--muted)";
+          const arrowSymbol = moved === "up" ? "▲" : moved === "down" ? "▼" : "";
+          const arrowClass = moved === "up" ? "positive" : moved === "down" ? "negative" : "";
+          const deltaLabel = delta != null ? `${delta >= 0 ? "+" : ""}${(delta * 100).toFixed(1)}pp` : "";
+
+          const probBar = entryPct != null && currentPct != null ? `
+            <div class="prob-bar-combined" title="Entry: ${entryPct.toFixed(1)}% → Current: ${currentPct.toFixed(1)}%">
+              <div class="prob-bar-track-v2">
+                <div class="prob-bar-fill-v2" style="width:${currentPct.toFixed(1)}%; background:${barFillColor};"></div>
+                <div class="prob-bar-marker" style="left:${entryPct.toFixed(1)}%;"></div>
+              </div>
+              <div class="prob-bar-labels">
+                <span class="prob-bar-entry">
+                  <span class="prob-bar-sublabel">Entry</span>
+                  ${entryPct.toFixed(1)}%
+                </span>
+                ${arrowSymbol ? `<span class="prob-bar-arrow ${arrowClass}">${arrowSymbol} ${deltaLabel}</span>` : ""}
+                <span class="prob-bar-current">
+                  <span class="prob-bar-sublabel">Now</span>
+                  ${currentPct.toFixed(1)}%
+                </span>
+              </div>
+            </div>` : `<span class="cell-sub">n/a</span>`;
+
           return `
-        <li>
+        <li class="${rowClass}">
           <div class="position-market">
             <p class="position-title">${position.question}</p>
             <p class="position-meta">${position.outcome}</p>
           </div>
+          <div class="position-cell prob-bar-cell">
+            ${probBar}
+          </div>
           <div class="position-cell">
             <span class="cell-label">Bought</span>
             <span class="cell-value">${formatMana(entryMana)} mana</span>
-            <span class="cell-sub">${formatProb(entryProb)}</span>
-          </div>
-          <div class="position-cell">
-            <span class="cell-label">Current</span>
-            <span class="cell-value">${formatMana(currentMana)} mana</span>
-            <span class="cell-sub">${formatProb(currentProb)}</span>
           </div>
           <div class="position-cell">
             <span class="cell-label">Win Value</span>
             <span class="cell-value">${formatMana(winValue)} mana</span>
             <span class="cell-sub">If ${position.outcome} resolves</span>
-          </div>
-          <div class="position-cell ${deltaClass}">
-            <span class="cell-label">Δ Prob</span>
-            <span class="cell-value">${formatDelta(delta)}</span>
-          </div>
-          <div class="position-cell ${pnlValueClass}">
-            <span class="cell-label">PnL</span>
-            <span class="cell-value">${formatSignedMana(pnlValue)}</span>
           </div>
         </li>`;
         })
@@ -398,7 +482,64 @@ function renderPositions(positions = []) {
   `;
 }
 
+function buildStatsStrip(agent) {
+  const trades = Array.isArray(agent.trades) ? agent.trades : [];
+  const resolved = trades.filter((t) => {
+    const s = String(t.status || "").toUpperCase();
+    return s === "EXECUTED" || s === "RESOLVED" || s === "LOSS";
+  });
+  const wins = resolved.filter((t) => {
+    const s = String(t.status || "").toUpperCase();
+    if (s === "LOSS") return false;
+    const pnl = Number(t.pnl);
+    return Number.isFinite(pnl) ? pnl > 0 : s !== "LOSS";
+  }).length;
+  const losses = resolved.filter((t) => {
+    const s = String(t.status || "").toUpperCase();
+    if (s === "LOSS") return true;
+    const pnl = Number(t.pnl);
+    return Number.isFinite(pnl) && pnl < 0;
+  }).length;
+  const open = trades.filter((t) => String(t.status || "").toUpperCase() === "OPEN").length;
+  const winRate = resolved.length > 0 ? wins / resolved.length : null;
+  const winRateClass = winRate == null ? "" : winRate >= 0.5 ? "positive" : "negative";
+
+  return `
+    <div class="stats-strip">
+      <div class="stats-chip">
+        <span class="stats-chip-label">Wins</span>
+        <span class="stats-chip-value positive">${wins}</span>
+      </div>
+      <div class="stats-chip">
+        <span class="stats-chip-label">Losses</span>
+        <span class="stats-chip-value negative">${losses}</span>
+      </div>
+      <div class="stats-chip">
+        <span class="stats-chip-label">Open</span>
+        <span class="stats-chip-value">${open}</span>
+      </div>
+      <div class="stats-chip">
+        <span class="stats-chip-label">Win Rate</span>
+        <span class="stats-chip-value ${winRateClass}">${winRate != null ? `${(winRate * 100).toFixed(0)}%` : "—"}</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderDetail(agent) {
+  const series = buildValueSeries(agent);
+  const chartWidth = 860;
+  const padding = { top: 16, right: 16, bottom: 32, left: 56 };
+  const innerWidth = chartWidth - padding.left - padding.right;
+  const innerHeight = 260 - padding.top - padding.bottom;
+  const values = series.map((e) => e.value);
+  let minValue = Math.min(...values);
+  let maxValue = Math.max(...values);
+  if (minValue === maxValue) { const buf = Math.max(1, Math.abs(minValue) * 0.02); minValue -= buf; maxValue += buf; }
+  const toX = (i) => padding.left + (series.length === 1 ? 0 : (i / (series.length - 1)) * innerWidth);
+  const toY = (v) => padding.top + ((maxValue - v) / (maxValue - minValue)) * innerHeight;
+  const points = series.map((e, i) => ({ ...e, x: toX(i), y: toY(e.value) }));
+
   detailContainer.innerHTML = `
     ${renderValueChart(agent)}
     <section class="detail-card tabbed-card">
@@ -420,6 +561,7 @@ function renderDetail(agent) {
     </section>
   `;
   setupTabs(detailContainer);
+  setupChartTooltip(points, padding, chartWidth);
 }
 
 function setupTabs(container) {
@@ -467,7 +609,7 @@ async function bootstrap() {
       ? agent.history[agent.history.length - 1].date
       : "n/a";
     const walletNote = agent.wallet ? ` • Wallet ${agent.wallet}` : "";
-    agentMetaEl.textContent = `${agent.provider} • ${agent.model}${walletNote} • Last run ${latestRun}`;
+    agentMetaEl.innerHTML = `${agent.provider} • ${agent.model}${walletNote}<span class="last-run-badge">Last run ${latestRun}</span>`;
 
     renderHeaderStats(agent);
     renderDetail(agent);
