@@ -32,6 +32,19 @@ enable_dashboard_alb = false
 # database_url_param_name = "/agent-time/dev/DATABASE_URL"
 # require_database_url = true
 
+# Optional: managed RDS Postgres (creates DATABASE_URL in SSM automatically).
+# enable_rds_postgres = true
+# rds_instance_class = "db.t4g.micro"
+# rds_engine_version = null
+# rds_db_name = "agent_time"
+# rds_username = "agent_time"
+# rds_allocated_storage_gb = 20
+# rds_max_allocated_storage_gb = 100
+# rds_backup_retention_days = 1
+# rds_publicly_accessible = false
+# rds_deletion_protection = false
+# rds_skip_final_snapshot = true
+
 # Low-cost single-instance profile (no dedicated market-fetcher EC2):
 # enable_shared_market_cache = false
 # create_market_fetcher_instance = false

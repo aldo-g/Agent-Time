@@ -55,7 +55,11 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-def _init_db_writer_with_session_retry() -> tuple[DbWriter, int, datetime]:
+def _init_db_writer_with_session_retry(
+    *,
+    market_snapshot: Dict[str, Any] | None = None,
+    force_new_session: bool = False,
+) -> tuple[DbWriter, int, datetime]:
     attempts = max(1, _env_int("AGENT_DB_CONNECT_RETRIES", 30))
     delay_seconds = max(0.1, _env_float("AGENT_DB_CONNECT_RETRY_DELAY_SECONDS", 2.0))
     last_error: Exception | None = None
@@ -65,9 +69,15 @@ def _init_db_writer_with_session_retry() -> tuple[DbWriter, int, datetime]:
             db_writer.ping()
             db_writer.ensure_schema()
             latest_session = db_writer.get_latest_session()
-            if not latest_session:
-                raise RuntimeError("No session found. Run market-fetcher first.")
-            return db_writer, latest_session["id"], latest_session["started_at"]
+            if latest_session and not force_new_session:
+                return db_writer, latest_session["id"], latest_session["started_at"]
+            session_started_at = datetime.now(timezone.utc)
+            session_id = db_writer.create_session(
+                started_at=session_started_at,
+                market_json=market_snapshot,
+                notes="single_runner session bootstrap",
+            )
+            return db_writer, session_id, session_started_at
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             if attempt < attempts:
@@ -273,6 +283,20 @@ def _load_market_cache(cache_path: Path) -> List[EventSummary] | None:
         os.environ["PREDICT_ARENA_MARKET_FETCHED_AT"] = fetched_at
     os.environ["PREDICT_ARENA_MARKET_COUNT"] = str(len(events))
     return events
+
+
+def _build_market_session_payload(
+    market_events: List[EventSummary] | None,
+    market_limit: int,
+) -> Dict[str, Any] | None:
+    if not market_events:
+        return None
+    fetched_at = os.environ.get("PREDICT_ARENA_MARKET_FETCHED_AT") or datetime.now(timezone.utc).isoformat()
+    return {
+        "fetched_at": fetched_at,
+        "limit": market_limit,
+        "events": events_to_dicts(market_events),
+    }
 
 
 def _parse_trades_from_output(output: object) -> List[Dict[str, str]]:
@@ -658,13 +682,17 @@ def run_multi_agent(
         if skip_market_fetch
         else _prepare_market_cache(market_limit, cache_path)
     )
+    market_snapshot = _build_market_session_payload(market_events, market_limit)
     session_records: List[Dict[str, Any]] = []
     db_writer: DbWriter | None = None
     session_id: int | None = None
     session_started_at = datetime.now(timezone.utc)
     run_ids: Dict[str, int] = {}
     try:
-        db_writer, session_id, session_started_at = _init_db_writer_with_session_retry()
+        db_writer, session_id, session_started_at = _init_db_writer_with_session_retry(
+            market_snapshot=market_snapshot,
+            force_new_session=not skip_market_fetch,
+        )
         for cfg in configs:
             run_id = db_writer.get_run_id(session_id=session_id)
             if run_id is None:

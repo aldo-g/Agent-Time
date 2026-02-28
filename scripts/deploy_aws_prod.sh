@@ -67,6 +67,13 @@ check_required_ssm_params() {
     fi
   done < <(jq -r '.ssm_parameter_names.value | to_entries[] | .value.llm_api_key, .value.manifold_api_key' <<<"${TF_OUTPUTS_JSON}")
 
+  db_param="$(jq -r '.database_url_ssm_parameter_name.value // empty' <<<"${TF_OUTPUTS_JSON}")"
+  if [[ -n "${db_param}" && "${db_param}" != "null" ]]; then
+    if ! aws ssm get-parameter --region "${AWS_REGION}" --name "${db_param}" >/dev/null 2>&1; then
+      missing+=("${db_param}")
+    fi
+  fi
+
   if [[ "${#missing[@]}" -gt 0 ]]; then
     echo "Missing required SSM parameters:" >&2
     printf ' - %s\n' "${missing[@]}" >&2
@@ -113,11 +120,11 @@ fi
 terraform -chdir="${TF_DIR}" init
 
 if ! is_true "${SKIP_TERRAFORM_APPLY}"; then
-  apply_args=()
   if is_true "${AUTO_APPROVE}"; then
-    apply_args+=("-auto-approve")
+    terraform -chdir="${TF_DIR}" apply -auto-approve
+  else
+    terraform -chdir="${TF_DIR}" apply
   fi
-  terraform -chdir="${TF_DIR}" apply "${apply_args[@]}"
 fi
 
 load_tf_outputs

@@ -587,7 +587,7 @@ function setupTabs(container) {
 
 const params = new URLSearchParams(window.location.search);
 const apiOverride = params.get("api");
-const apiEndpoint = apiOverride || "/api/live-runs?refresh=1&live=1";
+const apiEndpoint = apiOverride || "/api/live-runs?refresh=1";
 
 async function loadPayload() {
   const response = await fetch(apiEndpoint, { cache: "no-store" });

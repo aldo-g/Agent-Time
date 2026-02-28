@@ -282,7 +282,7 @@ main {
 .tab-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   justify-content: flex-start;
   gap: 1.2rem;
   padding: 1.1rem 1.1rem 0;
@@ -300,6 +300,9 @@ main {
   gap: 0.35rem;
   align-items: flex-end;
   padding: 0 0.4rem;
+  margin-bottom: -1px;
+  position: relative;
+  isolation: isolate;
 }
 
 .tab-button {
@@ -314,17 +317,20 @@ main {
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
   border: 1px solid var(--panel-border);
-  border-bottom: none;
+  border-bottom-color: var(--panel-border);
   position: relative;
-  top: 1px;
+  top: 0;
+  transform: translateY(1px);
+  z-index: 1;
 }
 
 .tab-button.active {
   background: var(--panel);
   color: var(--accent);
-  transform: translateY(-2px);
+  transform: translateY(0);
+  border-bottom-color: var(--panel);
   box-shadow: 0 -6px 16px rgba(31, 26, 20, 0.08);
-  z-index: 2;
+  z-index: 3;
 }
 
 .tab-panels {

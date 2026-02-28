@@ -28,6 +28,17 @@ logger = logging.getLogger(__name__)
 _LIVE_RUNS_CACHE: Dict[str, Any] = {"payload": None, "ts": None}
 _LIVE_RUNS_TTL_SECONDS = 3600
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+_LIVE_HYDRATION_ENABLED = _env_flag("PREDICT_ARENA_ENABLE_LIVE_HYDRATION", False)
+
+
 def _mask_key(key: str) -> str:
     return key if len(key) <= 8 else f"{key[:4]}...{key[-4:]}"
 
@@ -209,7 +220,8 @@ class PredictArenaHandler(SimpleHTTPRequestHandler):
         path = parsed.path
         query = parse_qs(parsed.query)
         bypass_cache = query.get("refresh") == ["1"] or query.get("cache") == ["0"]
-        live_hydrate = query.get("live") == ["1"]
+        live_hydrate_requested = query.get("live") == ["1"]
+        live_hydrate = live_hydrate_requested and _LIVE_HYDRATION_ENABLED
         if path.startswith("/api/health"):
             self._send_json({"status": "ok"})
             return

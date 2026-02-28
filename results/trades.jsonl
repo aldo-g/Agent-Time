@@ -1,1 +1,0 @@
-{"timestamp": "2026-02-18T00:09:39.190108+00:00", "agent": null, "provider": null, "model": null, "wallet": "w", "action": "SELL", "market_id": "m1", "market_slug": "slug1", "market": "Q", "market_url": null, "outcome": "YES", "amount": 1.0, "shares": 5.0, "prob_before": 0.5, "prob_after": 0.4, "limit_prob": null, "bet_id": "b1", "status": "OPEN"}

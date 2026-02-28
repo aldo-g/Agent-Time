@@ -78,8 +78,12 @@ dashboard_hosted_zone_name = "yourdomain.com"
 Optional DB wiring (if you want run/trade writes to Postgres):
 
 ```hcl
+# Option A: use an existing Postgres URL you manage
 database_url_param_name = "/agent-time/prod/DATABASE_URL"
 require_database_url    = true
+
+# Option B: let Terraform create managed RDS Postgres + SSM DATABASE_URL
+enable_rds_postgres = true
 ```
 
 Notes for HTTPS/domain:
@@ -171,6 +175,7 @@ aws ssm put-parameter \
   --overwrite
 ```
 
+If `enable_rds_postgres = true`, Terraform creates and maintains this parameter automatically.
 If you changed DB-related tfvars after initial apply, run `terraform apply` again.
 
 ## 5) Run Once Manually (Recommended After First Setup)
@@ -309,4 +314,5 @@ done
 
 - Timers are enabled by default (`enable_timers = true`), so services continue running on schedule.
 - If `database_url_param_name` is unset, DB writes are skipped by design and dashboard falls back to JSONL files.
+- If `enable_rds_postgres = true`, Terraform provisions RDS and writes `DATABASE_URL` to SSM for the bots.
 - For lowest monthly cost, use `create_market_fetcher_instance = false`, `enable_shared_market_cache = false`, and `bot_skip_market_fetch = false`.

@@ -26,3 +26,16 @@ enable_dashboard_alb      = false
 # Optional DB wiring:
 # database_url_param_name = "/agent-time/prod/DATABASE_URL"
 # require_database_url    = true
+
+# Optional managed RDS Postgres:
+# enable_rds_postgres       = true
+# rds_instance_class        = "db.t4g.micro"
+# rds_engine_version        = null
+# rds_db_name               = "agent_time"
+# rds_username              = "agent_time"
+# rds_allocated_storage_gb  = 20
+# rds_max_allocated_storage_gb = 100
+# rds_backup_retention_days = 1
+# rds_publicly_accessible   = false
+# rds_deletion_protection   = false
+# rds_skip_final_snapshot   = true

@@ -90,5 +90,30 @@ output "ssm_parameter_names" {
 
 output "database_url_ssm_parameter_name" {
   description = "Optional SSM parameter name used to load DATABASE_URL into all bots."
-  value       = var.database_url_param_name
+  value       = local.database_url_param_name_effective
+}
+
+output "rds_instance_id" {
+  description = "RDS instance identifier when managed Postgres is enabled."
+  value       = try(aws_db_instance.postgres[0].id, null)
+}
+
+output "rds_endpoint" {
+  description = "RDS Postgres endpoint when managed Postgres is enabled."
+  value       = try(aws_db_instance.postgres[0].address, null)
+}
+
+output "rds_port" {
+  description = "RDS Postgres port when managed Postgres is enabled."
+  value       = try(aws_db_instance.postgres[0].port, null)
+}
+
+output "rds_db_name" {
+  description = "RDS Postgres database name when managed Postgres is enabled."
+  value       = var.enable_rds_postgres ? var.rds_db_name : null
+}
+
+output "rds_username" {
+  description = "RDS Postgres master username when managed Postgres is enabled."
+  value       = var.enable_rds_postgres ? var.rds_username : null
 }

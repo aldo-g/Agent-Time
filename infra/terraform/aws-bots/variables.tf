@@ -214,6 +214,72 @@ variable "default_schedule" {
   default     = "hourly"
 }
 
+variable "enable_rds_postgres" {
+  description = "When true, provision a managed RDS Postgres instance and store DATABASE_URL in SSM."
+  type        = bool
+  default     = false
+}
+
+variable "rds_instance_class" {
+  description = "RDS instance class for managed Postgres."
+  type        = string
+  default     = "db.t4g.micro"
+}
+
+variable "rds_engine_version" {
+  description = "Optional Postgres engine version for RDS. Set null to let AWS choose a region-supported default."
+  type        = string
+  default     = null
+}
+
+variable "rds_db_name" {
+  description = "Database name created on the RDS instance."
+  type        = string
+  default     = "agent_time"
+}
+
+variable "rds_username" {
+  description = "Master username for RDS Postgres."
+  type        = string
+  default     = "agent_time"
+}
+
+variable "rds_allocated_storage_gb" {
+  description = "Initial allocated storage (GB) for RDS Postgres."
+  type        = number
+  default     = 20
+}
+
+variable "rds_max_allocated_storage_gb" {
+  description = "Autoscaling max storage (GB) for RDS Postgres."
+  type        = number
+  default     = 100
+}
+
+variable "rds_backup_retention_days" {
+  description = "Backup retention period in days for RDS Postgres."
+  type        = number
+  default     = 1
+}
+
+variable "rds_publicly_accessible" {
+  description = "Whether the RDS instance gets a public endpoint. Keep false for private-only DB access."
+  type        = bool
+  default     = false
+}
+
+variable "rds_deletion_protection" {
+  description = "Enable deletion protection on the RDS instance."
+  type        = bool
+  default     = false
+}
+
+variable "rds_skip_final_snapshot" {
+  description = "Skip final snapshot when destroying RDS. Keep true for low-friction dev/test teardown."
+  type        = bool
+  default     = true
+}
+
 variable "database_url_param_name" {
   description = "Optional SSM SecureString parameter name for shared DATABASE_URL (e.g. Supabase Postgres URL). Leave null to skip DB wiring."
   type        = string

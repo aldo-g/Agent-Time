@@ -57,6 +57,7 @@ locals {
   dashboard_cert_arn            = var.dashboard_certificate_arn != null ? var.dashboard_certificate_arn : try(aws_acm_certificate_validation.dashboard[0].certificate_arn, null)
   dashboard_alb_name            = substr(replace("${local.name_prefix}-dashboard-alb", "_", "-"), 0, 32)
   dashboard_tg_name             = substr(replace("${local.name_prefix}-dashboard-tg", "_", "-"), 0, 32)
+  rds_identifier                = substr(replace("${local.name_prefix}-postgres", "_", "-"), 0, 63)
   shared_market_cache_bucket_name = lower(
     replace(
       "${local.name_prefix}-${data.aws_caller_identity.current.account_id}-${var.aws_region}-market-cache",
@@ -67,6 +68,8 @@ locals {
 
   ssm_path_prefix = "/${var.project_name}/${var.environment}"
   ssm_path_arn    = trim(local.ssm_path_prefix, "/")
+  database_url_param_name_effective = var.enable_rds_postgres ? coalesce(var.database_url_param_name, "${local.ssm_path_prefix}/DATABASE_URL") : var.database_url_param_name
+  database_url_param_arn            = local.database_url_param_name_effective != null ? "arn:${data.aws_partition.current.partition}:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${trim(local.database_url_param_name_effective, "/")}" : null
 
   bots = {
     for key, bot in var.bots : key => merge(bot, {
@@ -172,6 +175,107 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "market_cache" {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
     }
+  }
+}
+
+resource "random_password" "rds_master" {
+  count   = var.enable_rds_postgres ? 1 : 0
+  length  = 24
+  special = true
+}
+
+resource "aws_db_subnet_group" "postgres" {
+  count = var.enable_rds_postgres ? 1 : 0
+
+  name       = "${local.name_prefix}-postgres-subnets"
+  subnet_ids = local.subnet_ids
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    Service     = "postgres"
+  }
+}
+
+resource "aws_security_group" "postgres" {
+  count = var.enable_rds_postgres ? 1 : 0
+
+  name        = "${local.name_prefix}-postgres-sg"
+  description = "Security group for Agent-Time Postgres"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description     = "Postgres from bot instances"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bots.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    Service     = "postgres"
+  }
+}
+
+resource "aws_db_instance" "postgres" {
+  count = var.enable_rds_postgres ? 1 : 0
+
+  identifier                 = local.rds_identifier
+  engine                     = "postgres"
+  engine_version             = var.rds_engine_version
+  instance_class             = var.rds_instance_class
+  allocated_storage          = var.rds_allocated_storage_gb
+  max_allocated_storage      = var.rds_max_allocated_storage_gb
+  storage_type               = "gp3"
+  db_name                    = var.rds_db_name
+  username                   = var.rds_username
+  password                   = random_password.rds_master[0].result
+  db_subnet_group_name       = aws_db_subnet_group.postgres[0].name
+  vpc_security_group_ids     = [aws_security_group.postgres[0].id]
+  publicly_accessible        = var.rds_publicly_accessible
+  backup_retention_period    = var.rds_backup_retention_days
+  deletion_protection        = var.rds_deletion_protection
+  skip_final_snapshot        = var.rds_skip_final_snapshot
+  auto_minor_version_upgrade = true
+  apply_immediately          = true
+  storage_encrypted          = true
+
+  tags = {
+    Name        = local.rds_identifier
+    Project     = var.project_name
+    Environment = var.environment
+    Service     = "postgres"
+  }
+}
+
+resource "aws_ssm_parameter" "database_url" {
+  count = var.enable_rds_postgres ? 1 : 0
+
+  name      = local.database_url_param_name_effective
+  type      = "SecureString"
+  overwrite = true
+  value = format(
+    "postgresql://%s:%s@%s:%d/%s?sslmode=require",
+    var.rds_username,
+    urlencode(random_password.rds_master[0].result),
+    aws_db_instance.postgres[0].address,
+    aws_db_instance.postgres[0].port,
+    var.rds_db_name,
+  )
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    Service     = "postgres"
   }
 }
 
@@ -305,7 +409,10 @@ resource "aws_iam_role_policy" "bot_access" {
           "ssm:GetParameters",
           "ssm:GetParametersByPath"
         ]
-        Resource = "arn:${data.aws_partition.current.partition}:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${local.ssm_path_arn}/*"
+        Resource = concat(
+          ["arn:${data.aws_partition.current.partition}:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${local.ssm_path_arn}/*"],
+          local.database_url_param_arn != null ? [local.database_url_param_arn] : [],
+        )
       },
       {
         Sid      = "DecryptSecureString"
@@ -419,7 +526,7 @@ resource "aws_instance" "bot" {
     market_limit                   = var.market_limit
     max_attempts                   = var.max_attempts
     bot_skip_market_fetch          = var.bot_skip_market_fetch ? "true" : "false"
-    database_url_param_name        = var.database_url_param_name != null ? var.database_url_param_name : ""
+    database_url_param_name        = local.database_url_param_name_effective != null ? local.database_url_param_name_effective : ""
     database_url_required          = var.require_database_url ? "true" : "false"
     enable_shared_market_cache     = var.enable_shared_market_cache ? "true" : "false"
     shared_market_cache_bucket     = aws_s3_bucket.market_cache.bucket
@@ -477,6 +584,8 @@ resource "aws_instance" "market_fetcher" {
     log_group_name                 = aws_cloudwatch_log_group.market_fetcher[0].name
     log_stream_name                = "market-fetcher"
     market_limit                   = var.market_limit
+    database_url_param_name        = local.database_url_param_name_effective != null ? local.database_url_param_name_effective : ""
+    database_url_required          = var.require_database_url ? "true" : "false"
     shared_market_cache_bucket     = aws_s3_bucket.market_cache.bucket
     shared_market_cache_object_key = var.shared_market_cache_object_key
     enable_timers                  = var.enable_timers ? "true" : "false"

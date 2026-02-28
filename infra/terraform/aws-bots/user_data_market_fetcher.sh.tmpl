@@ -13,6 +13,20 @@ set -euo pipefail
 
 CACHE_PATH="/opt/agent-time/data/shared_markets.json"
 S3_URI="s3://${shared_market_cache_bucket}/${shared_market_cache_object_key}"
+DATABASE_URL_VALUE=""
+
+if [ -n "${database_url_param_name}" ]; then
+  DATABASE_URL_VALUE="$(aws ssm get-parameter --region "${aws_region}" --name "${database_url_param_name}" --with-decryption --query Parameter.Value --output text 2>/dev/null || true)"
+  if [ -z "$${DATABASE_URL_VALUE}" ] && [ "${database_url_required}" = "true" ]; then
+    echo "DATABASE_URL parameter '${database_url_param_name}' is missing or empty."
+    exit 1
+  fi
+fi
+
+DB_ENV_ARGS=()
+if [ -n "$${DATABASE_URL_VALUE}" ]; then
+  DB_ENV_ARGS+=(--env "DATABASE_URL=$${DATABASE_URL_VALUE}")
+fi
 
 aws ecr get-login-password --region "${aws_region}" | docker login --username AWS --password-stdin "${ecr_registry}"
 docker pull "${ecr_image_uri}"
@@ -23,6 +37,7 @@ docker run --rm --name agent-time-market-fetcher \
   --log-opt awslogs-region=${aws_region} \
   --log-opt awslogs-group=${log_group_name} \
   --log-opt awslogs-stream=${log_stream_name} \
+  "$${DB_ENV_ARGS[@]}" \
   -v /opt/agent-time/data:/data \
   "${ecr_image_uri}" \
   python -m agent.fetch_markets \
